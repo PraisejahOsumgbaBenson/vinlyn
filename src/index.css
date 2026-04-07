@@ -1,0 +1,51 @@
+:root {
+  --canvas: #ffffff;
+  --ink: #141414;
+  --muted: #6a6864;
+  --hairline: rgba(20, 20, 20, 0.12);
+  --accent: #1db954;
+  --polka-dot-pattern: none;
+  --polka-dot-size: 800px 800px, 800px 800px;
+
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  background-color: var(--canvas);
+  background-image: var(--polka-dot-pattern);
+  background-size: var(--polka-dot-size);
+  background-position: 0 0, 400px 400px;
+}
+
+#root {
+  width: 100%;
+  min-height: 100svh;
+  margin: 0;
+  text-align: initial;
+  border: none;
+}
+
+a {
+  color: inherit;
+}
