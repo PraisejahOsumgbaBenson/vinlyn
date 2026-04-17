@@ -1,5 +1,11 @@
 # Vinlyn
 
+[![GitHub stars](https://img.shields.io/github/stars/PraisejahOsumgbaBenson/vinlyn)](https://github.com/PraisejahOsumgbaBenson/vinlyn/stargazers)
+[![GitHub license](https://img.shields.io/github/license/PraisejahOsumgbaBenson/vinlyn)](https://github.com/PraisejahOsumgbaBenson/vinlyn/blob/main/LICENSE)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?logo=typescript)](https://www.typescriptlang.org)
+[![Vite](https://img.shields.io/badge/Vite-5.0-646CFF?logo=vite)](https://vitejs.dev)
+
 An interactive, gesture-driven digital art gallery that transforms how you browse and experience artworks. Built with React and TypeScript, Vinlyn presents a 3D card-stack interface for exploring pieces from the Art Institute of Chicago collection, complete with hand-gesture controls, spatial audio feedback, and a curated gallery aesthetic.
 
 ## Features
@@ -23,6 +29,19 @@ An interactive, gesture-driven digital art gallery that transforms how you brows
 - **Art Institute of Chicago API** for artwork metadata and images
 - **Wikipedia API** as a supplementary art information source
 - **CSS** with custom properties for 3D transforms and theming
+
+## Table of Contents
+
+- [Getting Started](#getting-started)
+- [Project Structure](#project-structure)
+- [Architecture](#architecture)
+  - [Gallery Engine](#gallery-engine)
+  - [Gesture Pipeline](#gesture-pipeline)
+  - [API Layer](#api-layer)
+  - [Audio System](#audio-system)
+- [Environment Variables](#environment-variables)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [License](#license)
 
 ## Getting Started
 
