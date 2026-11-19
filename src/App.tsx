@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type SyntheticEvent,
 } from "react";
 import { AlbumRibbon } from "./components/AlbumRibbon";
 import { HandGestureController } from "./components/HandGestureController";
@@ -17,6 +18,7 @@ import {
   fetchUserPlaylists,
   getValidAccessToken,
   isSpotifyConfigured,
+  IMAGE_FALLBACK,
   searchArtworkCovers,
   type LibrarySource,
   type AlbumCover,
@@ -50,6 +52,25 @@ function parseJson<T>(raw: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function applyImageFallback(event: SyntheticEvent<HTMLImageElement>) {
+  const image = event.currentTarget;
+  if (image.dataset.fallback) return;
+  image.dataset.fallback = "true";
+  image.src = IMAGE_FALLBACK;
+}
+
+function loadNickname(): string {
+  const stored = localStorage.getItem(NICKNAME_KEY);
+  if (stored) return stored;
+  const legacy = sessionStorage.getItem(NICKNAME_KEY);
+  if (legacy) {
+    localStorage.setItem(NICKNAME_KEY, legacy);
+    sessionStorage.removeItem(NICKNAME_KEY);
+    return legacy;
+  }
+  return "";
 }
 
 function artworkIdFromPath(pathname: string): string | null {
@@ -258,12 +279,12 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [introLoading, setIntroLoading] = useState(true);
   const [nicknameInput, setNicknameInput] = useState("");
-  const [nickname, setNickname] = useState<string>(() => {
-    return sessionStorage.getItem(NICKNAME_KEY) || "";
-  });
-  const [nicknameDone, setNicknameDone] = useState<boolean>(() => {
-    return Boolean(sessionStorage.getItem(NICKNAME_KEY));
-  });
+  const [nickname, setNickname] = useState<string>(() => loadNickname());
+  const [nicknameDone, setNicknameDone] = useState<boolean>(() =>
+    Boolean(loadNickname()),
+  );
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [nameEditorOpen, setNameEditorOpen] = useState(false);
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState<LibrarySource>(() =>
     loadStoredSource(),
@@ -300,7 +321,10 @@ export default function App() {
   const [collections, setCollections] = useState<UserCollection[]>(() =>
     parseJson<UserCollection[]>(localStorage.getItem(COLLECTIONS_KEY), []),
   );
-  const [newCollectionName, setNewCollectionName] = useState("");
+  const [newCollectionName, setNewCollectionName] = useState(() => {
+    const name = loadNickname();
+    return name && name !== "Guest" ? `${name}'s picks` : "My picks";
+  });
   const [collectionRenameName, setCollectionRenameName] = useState("");
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
   const [galleryScope, setGalleryScope] = useState<GalleryScope>(() => {
@@ -514,6 +538,17 @@ export default function App() {
         tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
       if (isTyping && e.key !== "Escape") return;
 
+      if (
+        e.key === "Escape" &&
+        (aboutOpen || nameEditorOpen || sourcePickerOpen)
+      ) {
+        e.preventDefault();
+        setAboutOpen(false);
+        setNameEditorOpen(false);
+        setSourcePickerOpen(false);
+        return;
+      }
+
       if (e.key === "/") {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -541,12 +576,15 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    aboutOpen,
     configured,
     connected,
     loadFromSpotify,
+    nameEditorOpen,
     nicknameDone,
     searchQuery,
     selectedSource,
+    sourcePickerOpen,
   ]);
 
   const onConnect = () => {
@@ -558,15 +596,39 @@ export default function App() {
     setSourcePickerOpen(true);
   };
 
-  const onNicknameSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    const next = nicknameInput.trim().slice(0, 8);
+  const saveNickname = (value: string) => {
+    const next = value.trim().slice(0, 24);
     if (!next) return;
-    resumeSfx();
-    getSfx().playConfirm();
     setNickname(next);
     setNicknameDone(true);
-    sessionStorage.setItem(NICKNAME_KEY, next);
+    localStorage.setItem(NICKNAME_KEY, next);
+  };
+
+  const onNicknameSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!nicknameInput.trim()) return;
+    resumeSfx();
+    getSfx().playConfirm();
+    saveNickname(nicknameInput);
+  };
+
+  const onGuest = () => {
+    resumeSfx();
+    getSfx().playConfirm();
+    saveNickname("Guest");
+  };
+
+  const openNameEditor = () => {
+    setNicknameInput(nickname === "Guest" ? "" : nickname);
+    setNameEditorOpen(true);
+  };
+
+  const onNameEditorSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!nicknameInput.trim()) return;
+    saveNickname(nicknameInput);
+    setNameEditorOpen(false);
+    setNicknameInput("");
   };
 
   const onSourceConfirm = () => {
@@ -1087,9 +1149,22 @@ export default function App() {
             <span className="unveil-pill unveil-pill--lead">
               VINLYN • GALLERY
             </span>
-            <button type="button" className="unveil-pill">
-              CONTACT
+            <button
+              type="button"
+              className="unveil-pill"
+              onClick={() => setAboutOpen(true)}
+            >
+              ABOUT
             </button>
+            {nicknameDone && (
+              <button
+                type="button"
+                className="unveil-pill unveil-pill--quiet"
+                onClick={openNameEditor}
+              >
+                {nickname === "Guest" ? "SET NAME" : `HI, ${nickname.toUpperCase()}`}
+              </button>
+            )}
           </header>
 
           <div className="unveil-corner unveil-corner--tr">
@@ -1252,9 +1327,14 @@ export default function App() {
                   )}
               </>
             )}
-            <button type="button" className="unveil-filter">
+            <button
+              type="button"
+              className="unveil-filter"
+              onClick={onOpenSourcePicker}
+              title="Change artwork source"
+            >
               {sourceLabel(selectedSource).toUpperCase()}{" "}
-              <sup>{connected ? "●" : "—"}</sup>
+              <sup>{connected ? "●" : "—"}</sup> <span aria-hidden>⌄</span>
             </button>
             <button
               type="button"
@@ -1320,7 +1400,7 @@ export default function App() {
       )}
 
       {(status || gestureStatus) && !isArtworkPage && (
-        <div className="toast" role="status">
+        <div className="toast" role="status" aria-live="polite">
           {status || gestureStatus}
         </div>
       )}
@@ -1406,6 +1486,96 @@ export default function App() {
         </div>
       )}
 
+      {aboutOpen && !isArtworkPage && (
+        <div
+          className="source-picker"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setAboutOpen(false);
+          }}
+        >
+          <div
+            className="source-picker__card about-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="about-title"
+          >
+            <div className="source-picker__title" id="about-title">
+              About Vinlyn
+            </div>
+            <p>
+              Vinlyn is a quiet gallery of the Art Institute of Chicago
+              collection. Drag the stack to move through works, then open one
+              to read its story, palette, and history.
+            </p>
+            <p>
+              Use Search to find a painting or artist. Save what you love to
+              favorites, or gather pieces into named collections.
+            </p>
+            <p className="about-dialog__note">
+              Keyboard: / to search, P for source, R to refresh, Escape to close.
+            </p>
+            <div className="source-picker__actions">
+              <button
+                type="button"
+                className="source-picker__confirm"
+                onClick={() => setAboutOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {nameEditorOpen && !isArtworkPage && (
+        <div
+          className="source-picker"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setNameEditorOpen(false);
+          }}
+        >
+          <div
+            className="source-picker__card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="name-editor-title"
+          >
+            <div className="source-picker__title" id="name-editor-title">
+              Your gallery name
+            </div>
+            <form className="name-edit-form" onSubmit={onNameEditorSubmit}>
+              <input
+                type="text"
+                value={nicknameInput}
+                onChange={(e) =>
+                  setNicknameInput(e.target.value.slice(0, 24))
+                }
+                maxLength={24}
+                placeholder="Enter a name"
+                aria-label="Your gallery name"
+                autoFocus
+              />
+              <div className="source-picker__actions">
+                <button
+                  type="button"
+                  className="source-picker__cancel"
+                  onClick={() => setNameEditorOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="source-picker__confirm"
+                  disabled={!nicknameInput.trim()}
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {!configured && !isArtworkPage && (
         <div className="hint">
           Art collection API unavailable.
@@ -1429,21 +1599,32 @@ export default function App() {
             </div>
           ) : (
             <form className="nick-form" onSubmit={onNicknameSubmit}>
-              <label htmlFor="nickname-input">Enter your nickname</label>
+              <div className="nick-form__eyebrow">A QUIET INTRODUCTION</div>
+              <h1 className="nick-form__title">Make this gallery yours.</h1>
+              <label htmlFor="nickname-input">What should we call you?</label>
+              <p className="nick-form__hint">
+                Your name personalizes this gallery and labels the collections
+                you create.
+              </p>
               <div className="nick-form__row">
                 <input
                   id="nickname-input"
                   value={nicknameInput}
-                  onChange={(e) => setNicknameInput(e.target.value.slice(0, 8))}
-                  maxLength={8}
-                  placeholder="max 8"
+                  onChange={(e) => setNicknameInput(e.target.value.slice(0, 24))}
+                  maxLength={24}
+                  placeholder="Your name"
                   autoFocus
                 />
                 <button type="submit" disabled={!nicknameInput.trim()}>
-                  Start
+                  Enter
                 </button>
               </div>
-              <p>{nicknameInput.length}/8</p>
+              <div className="nick-form__footer">
+                <span>{nicknameInput.length}/24</span>
+                <button type="button" className="nick-form__guest" onClick={onGuest}>
+                  Continue as guest
+                </button>
+              </div>
             </form>
           )}
         </div>
@@ -1481,6 +1662,7 @@ export default function App() {
                   alt={
                     activeAlbumDetail?.name || activeAlbum?.name || "Artwork"
                   }
+                  onError={applyImageFallback}
                 />
               ) : (
                 <div className="detail-page__placeholder">Loading image...</div>
@@ -1493,6 +1675,7 @@ export default function App() {
                   <img
                     src={activeAlbumDetail?.imageUrl || activeAlbum?.imageUrl}
                     alt=""
+                    onError={applyImageFallback}
                   />
                 </div>
               ) : null}
@@ -1633,6 +1816,7 @@ export default function App() {
                               alt=""
                               loading="lazy"
                               decoding="async"
+                              onError={applyImageFallback}
                             />
                             <span>{item.name}</span>
                           </button>
@@ -1674,6 +1858,7 @@ export default function App() {
                       alt=""
                       loading="lazy"
                       decoding="async"
+                      onError={applyImageFallback}
                     />
                   ) : (
                     <span className="art-grid__fallback" aria-hidden />
@@ -1702,8 +1887,9 @@ export default function App() {
           )}
         </div>
       ) : (
-        <div className="preconnect-poster" aria-label="Pre-connect poster">
-          <div className="preconnect-poster__name">{nickname}</div>
+        <div className="preconnect-poster" aria-label="Gallery welcome">
+          <div className="preconnect-poster__kicker">CURATED FOR</div>
+          <div className="preconnect-poster__name">{nickname || "Guest"}</div>
         </div>
       )}
 

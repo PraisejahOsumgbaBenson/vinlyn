@@ -1,3 +1,10 @@
+const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800">
+  <rect width="800" height="800" fill="#f2f0ec"/>
+  <text x="400" y="400" dominant-baseline="middle" text-anchor="middle" font-family="Georgia, serif" font-size="30" fill="#6a6864">Image unavailable</text>
+</svg>`;
+
+export const IMAGE_FALLBACK = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(fallbackSvg)}`;
+
 export type AlbumCover = {
   id: string;
   name: string;

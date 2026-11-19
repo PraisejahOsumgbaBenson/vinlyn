@@ -10,6 +10,8 @@ An interactive, gesture-driven digital art gallery that transforms how you brows
 - **Artwork Detail Pages** — Deep-dive into individual pieces with artist info, medium, dimensions, historical context, and auto-extracted color palettes
 - **Favorites & Collections** — Save artworks to favorites, create named collections, and manage them from the gallery view
 - **Dual Layout Modes** — Switch between the immersive drag view and a traditional grid layout
+- **Personal Gallery Name** (Your name is saved in this browser, used on the welcome screen, and suggested as the default collection name. Change it from the header at any time.)
+- **Guided Controls** (The About dialog explains gestures and shortcuts. The source label in the filter panel opens the source picker.)
 - **Smart Search** — Combined search across the Art Institute of Chicago API and Wikipedia for paintings, artists, and movements
 - **Responsive Design** — Adaptive card sizing and layout for desktop and mobile viewports
 - **Offline-Ready Static Assets** — MediaPipe vision runtime bundled locally for reliable gesture detection

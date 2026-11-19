@@ -1,5 +1,12 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { AlbumCover } from "../lib";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { IMAGE_FALLBACK, type AlbumCover } from "../lib";
 import { UiSfx } from "../lib/sfx";
 import "./AlbumRibbon.css";
 
@@ -56,6 +63,17 @@ const RENDER_AHEAD_MOBILE = 8;
 const ROT_X = 0;
 const ROT_Y = -42;
 const ROT_Z = 0;
+
+function getResponsiveCardSize(): number {
+  if (typeof window === "undefined") return CARD_BASE;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  if (vw <= 920) {
+    const base = Math.min(vw, vh);
+    return Math.max(170, Math.min(290, Math.round(base * 0.58)));
+  }
+  return CARD_BASE;
+}
 
 type CardViewProps = {
   album: AlbumCover;
@@ -138,7 +156,8 @@ const FannedCard = memo(function FannedCard({
           className="ribbon-card__side ribbon-card__side--left"
           aria-hidden
         />
-        {album.imageUrl ? (
+        <span className="ribbon-card__fallback" aria-hidden />
+        {album.imageUrl && (
           <img
             src={album.imageUrl}
             alt=""
@@ -147,9 +166,12 @@ const FannedCard = memo(function FannedCard({
             loading={i < 20 ? "eager" : "lazy"}
             decoding="async"
             draggable={false}
+            onError={(e) => {
+              if (e.currentTarget.dataset.fallback) return;
+              e.currentTarget.dataset.fallback = "true";
+              e.currentTarget.src = IMAGE_FALLBACK;
+            }}
           />
-        ) : (
-          <span className="ribbon-card__fallback" aria-hidden />
         )}
       </div>
     </button>
@@ -162,17 +184,6 @@ export function AlbumRibbon({
   gestureScroll,
   gestureSelectSeq,
 }: Props) {
-  const getResponsiveCardSize = () => {
-    if (typeof window === "undefined") return CARD_BASE;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    if (vw <= 920) {
-      const base = Math.min(vw, vh);
-      return Math.max(170, Math.min(290, Math.round(base * 0.58)));
-    }
-    return CARD_BASE;
-  };
-
   const rootRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [cardSize, setCardSize] = useState(getResponsiveCardSize);
@@ -209,21 +220,24 @@ export function AlbumRibbon({
   const clickCancelDistanceRef = useRef(CLICK_CANCEL_DISTANCE_PX);
   const dragPointerTypeRef = useRef<string | null>(null);
   const smoothedTouchDyRef = useRef(0);
+  const onCardSelectRef = useRef<(album: AlbumCover) => void>(() => {});
+  const selectFrontAlbumRef = useRef<() => void>(() => {});
+  const tickRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     albumsRef.current = albums;
   }, [albums]);
 
-  const getSfx = () => {
+  const getSfx = useCallback(() => {
     if (!sfxRef.current) {
       sfxRef.current = new UiSfx();
     }
     return sfxRef.current;
-  };
+  }, []);
 
-  const resumeSfx = () => {
+  const resumeSfx = useCallback(() => {
     void getSfx().resume();
-  };
+  }, [getSfx]);
 
   const cancelIdleZoomTimer = () => {
     if (idleZoomTimerRef.current !== null) {
@@ -282,7 +296,7 @@ export function AlbumRibbon({
     );
   };
 
-  const tick = () => {
+  const tick = useCallback(() => {
     const current = animatedOffsetRef.current;
     const target = targetOffsetRef.current;
     const delta = target - current;
@@ -301,7 +315,7 @@ export function AlbumRibbon({
     setScrollOffset(next);
 
     if (draggingRef.current || Math.abs(target - next) > STOP_EPSILON) {
-      rafRef.current = window.requestAnimationFrame(tick);
+      rafRef.current = window.requestAnimationFrame(tickRef.current);
       return;
     }
 
@@ -309,14 +323,18 @@ export function AlbumRibbon({
     velocityRef.current = 0;
     setScrollOffset(target);
     rafRef.current = null;
-  };
+  }, []);
 
-  const ensureAnimation = () => {
+  useEffect(() => {
+    tickRef.current = tick;
+  }, [tick]);
+
+  const ensureAnimation = useCallback(() => {
     if (rafRef.current !== null) return;
-    rafRef.current = window.requestAnimationFrame(tick);
-  };
+    rafRef.current = window.requestAnimationFrame(tickRef.current);
+  }, []);
 
-  const applyTrackTransform = () => {
+  const applyTrackTransform = useCallback(() => {
     const el = trackRef.current;
     if (!el) return;
     const viewportH = window.innerHeight;
@@ -327,11 +345,11 @@ export function AlbumRibbon({
       ? TRACK_SCALE * IDLE_ZOOM_SCALE
       : TRACK_SCALE;
     el.style.transform = `translate(calc(-50% + ${shiftX}px), calc(-50% + ${dy}px)) rotateX(${ROT_X}deg) rotateY(${ROT_Y}deg) rotateZ(${ROT_Z}deg) scale3d(${activeScale}, ${activeScale}, ${activeScale})`;
-  };
+  }, [cardSize, isIdleZoom]);
 
   useLayoutEffect(() => {
     applyTrackTransform();
-  }, [cardSize, isIdleZoom]);
+  }, [applyTrackTransform]);
 
   useEffect(() => {
     const onResize = () => {
@@ -340,7 +358,7 @@ export function AlbumRibbon({
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [cardSize, isIdleZoom]);
+  }, [applyTrackTransform]);
 
   useEffect(() => {
     return () => {
@@ -361,7 +379,7 @@ export function AlbumRibbon({
         openTimerRef.current = null;
       }
     };
-  }, []);
+  }, [getSfx]);
 
   useEffect(() => {
     const onPointerMove = (e: PointerEvent) => {
@@ -427,7 +445,7 @@ export function AlbumRibbon({
           (item) => item.id === tappedAlbumId,
         );
         if (tapped) {
-          onCardSelect(tapped);
+          onCardSelectRef.current(tapped);
         }
       }
 
@@ -443,7 +461,7 @@ export function AlbumRibbon({
       window.removeEventListener("pointerup", endDrag);
       window.removeEventListener("pointercancel", endDrag);
     };
-  }, []);
+  }, [ensureAnimation, getSfx]);
 
   const onCardHoverStart = (
     i: number,
@@ -489,7 +507,7 @@ export function AlbumRibbon({
     }, 70);
   };
 
-  const onCardSelect = (album: AlbumCover) => {
+  const onCardSelect = useCallback((album: AlbumCover) => {
     if (!onSelectAlbum) return;
     if (dragDistanceRef.current > clickCancelDistanceRef.current) return;
     if (openingAlbumId) return;
@@ -503,9 +521,13 @@ export function AlbumRibbon({
       openTimerRef.current = null;
       setOpeningAlbumId(null);
     }, 230);
-  };
+  }, [onSelectAlbum, openingAlbumId]);
 
-  const selectFrontAlbum = () => {
+  useEffect(() => {
+    onCardSelectRef.current = onCardSelect;
+  }, [onCardSelect]);
+
+  const selectFrontAlbum = useCallback(() => {
     if (!albums.length) return;
     const frontIndex =
       ((Math.round(scrollOffset) % albums.length) + albums.length) %
@@ -514,7 +536,11 @@ export function AlbumRibbon({
     if (target) {
       onCardSelect(target);
     }
-  };
+  }, [albums, onCardSelect, scrollOffset]);
+
+  useEffect(() => {
+    selectFrontAlbumRef.current = selectFrontAlbum;
+  }, [selectFrontAlbum]);
 
   useEffect(() => {
     if (!gestureScroll) return;
@@ -534,13 +560,13 @@ export function AlbumRibbon({
 
     targetOffsetRef.current += -deltaPx * DRAG_GAIN;
     ensureAnimation();
-  }, [gestureScroll]);
+  }, [ensureAnimation, getSfx, gestureScroll, resumeSfx]);
 
   useEffect(() => {
     if (typeof gestureSelectSeq !== "number") return;
     if (gestureSelectSeq === lastGestureSelectSeqRef.current) return;
     lastGestureSelectSeqRef.current = gestureSelectSeq;
-    selectFrontAlbum();
+    selectFrontAlbumRef.current();
   }, [gestureSelectSeq, scrollOffset]);
 
   if (albums.length === 0) {
