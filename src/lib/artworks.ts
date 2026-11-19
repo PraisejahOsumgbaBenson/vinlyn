@@ -83,7 +83,19 @@ type WikiResponse = {
 
 const ACCESS_KEY = "vinlyn_art_access";
 const EXPIRES_KEY = "vinlyn_art_expires";
-const apiBase = "https://api.artic.edu/api/v1";
+
+function isLocalHost(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+}
+
+const useLocalProxy = isLocalHost();
+const apiBase = useLocalProxy
+  ? "/aic-api/api/v1"
+  : "https://api.artic.edu/api/v1";
+const iiifBase = useLocalProxy
+  ? "/aic-iiif/iiif/2"
+  : "https://www.artic.edu/iiif/2";
 const detailCache = new Map<string, SpotifyAlbumDetail>();
 const AIC_SAFE_LIMIT = 20;
 const MAX_COLLECTION_RESULTS = 240;
@@ -103,7 +115,7 @@ const movementTotalCache = new Map<string, number>();
 
 function imageUrlFromId(imageId?: string): string {
   if (!imageId) return "";
-  return `https://www.artic.edu/iiif/2/${imageId}/full/843,/0/default.jpg`;
+  return `${iiifBase}/${imageId}/full/843,/0/default.jpg`;
 }
 
 function parseArtist(art: AicArtwork): string {

@@ -51,6 +51,8 @@ For mobile device access on your local network:
 npm run dev:phone
 ```
 
+When opened from `localhost` or `127.0.0.1`, the app routes Art Institute API and IIIF image requests through Vite's dev and preview servers. The museum's Cloudflare rules reject requests that carry a localhost `Referer`, so the local proxy replaces it with an allowed one. Deployed builds continue to call the museum directly.
+
 ### Build for Production
 
 ```bash
