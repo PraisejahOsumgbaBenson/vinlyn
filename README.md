@@ -12,7 +12,8 @@ An interactive, gesture-driven digital art gallery that transforms how you brows
 - **Dual Layout Modes** — Switch between the immersive drag view and a traditional grid layout
 - **Personal Gallery Name** (Your name is saved in this browser, used on the welcome screen, and suggested as the default collection name. Change it from the header at any time.)
 - **Guided Controls** (The About dialog explains gestures and shortcuts. The source label in the filter panel opens the source picker.)
-- **Smart Search** — Combined search across the Art Institute of Chicago API and Wikipedia for paintings, artists, and movements
+- **Smart Search** (Search paintings, artists, and movements across the Art Institute of Chicago API and Wikipedia. The source picker also has a Painting Search mode with its own search term.)
+- **Reliable Images** (Artwork images use a size that fits each source, stepping down to smaller sizes when a source image is too small.)
 - **Responsive Design** — Adaptive card sizing and layout for desktop and mobile viewports
 - **Offline-Ready Static Assets** — MediaPipe vision runtime bundled locally for reliable gesture detection
 

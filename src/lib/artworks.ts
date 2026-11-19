@@ -88,6 +88,20 @@ type WikiResponse = {
   };
 };
 
+// Cantaloupe rejects IIIF requests that upscale beyond the source image.
+// 600 is the largest preset that fits nearly every artwork. If an image is
+// still smaller, walk down the preset sizes before giving up.
+const IIIF_SIZES = [600, 400, 200];
+const DEFAULT_IIIF_SIZE = IIIF_SIZES[0];
+
+export function nextImageSize(currentSrc: string): string | null {
+  const match = currentSrc.match(/^(.*\/full\/)(\d+)(,\/0\/default\.jpg)$/);
+  if (!match) return null;
+  const index = IIIF_SIZES.indexOf(Number(match[2]));
+  if (index === -1 || index === IIIF_SIZES.length - 1) return null;
+  return `${match[1]}${IIIF_SIZES[index + 1]}${match[3]}`;
+}
+
 const ACCESS_KEY = "vinlyn_art_access";
 const EXPIRES_KEY = "vinlyn_art_expires";
 
@@ -122,7 +136,7 @@ const movementTotalCache = new Map<string, number>();
 
 function imageUrlFromId(imageId?: string): string {
   if (!imageId) return "";
-  return `${iiifBase}/${imageId}/full/843,/0/default.jpg`;
+  return `${iiifBase}/${imageId}/full/${DEFAULT_IIIF_SIZE},/0/default.jpg`;
 }
 
 function parseArtist(art: AicArtwork): string {

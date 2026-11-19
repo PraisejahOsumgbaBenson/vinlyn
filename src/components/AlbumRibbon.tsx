@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { IMAGE_FALLBACK, type AlbumCover } from "../lib";
+import { IMAGE_FALLBACK, nextImageSize, type AlbumCover } from "../lib";
 import { UiSfx } from "../lib/sfx";
 import "./AlbumRibbon.css";
 
@@ -167,9 +167,15 @@ const FannedCard = memo(function FannedCard({
             decoding="async"
             draggable={false}
             onError={(e) => {
-              if (e.currentTarget.dataset.fallback) return;
-              e.currentTarget.dataset.fallback = "true";
-              e.currentTarget.src = IMAGE_FALLBACK;
+              const image = e.currentTarget;
+              const smaller = nextImageSize(image.currentSrc || image.src);
+              if (smaller) {
+                image.src = smaller;
+                return;
+              }
+              if (image.dataset.fallback) return;
+              image.dataset.fallback = "true";
+              image.src = IMAGE_FALLBACK;
             }}
           />
         )}

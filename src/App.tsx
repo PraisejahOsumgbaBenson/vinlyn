@@ -19,6 +19,7 @@ import {
   getValidAccessToken,
   isSpotifyConfigured,
   IMAGE_FALLBACK,
+  nextImageSize,
   searchArtworkCovers,
   type LibrarySource,
   type AlbumCover,
@@ -56,6 +57,11 @@ function parseJson<T>(raw: string | null, fallback: T): T {
 
 function applyImageFallback(event: SyntheticEvent<HTMLImageElement>) {
   const image = event.currentTarget;
+  const smaller = nextImageSize(image.currentSrc || image.src);
+  if (smaller) {
+    image.src = smaller;
+    return;
+  }
   if (image.dataset.fallback) return;
   image.dataset.fallback = "true";
   image.src = IMAGE_FALLBACK;
@@ -294,6 +300,7 @@ export default function App() {
   );
   const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [pickerSearchQuery, setPickerSearchQuery] = useState("painting");
   const [searchResults, setSearchResults] = useState<AlbumCover[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [activeAlbum, setActiveAlbum] = useState<AlbumCover | null>(null);
@@ -414,6 +421,28 @@ export default function App() {
     },
     [selectedPlaylistId, selectedSource],
   );
+
+  const loadFromPaintingSearch = useCallback(async (query: string) => {
+    const term = query.trim() || "painting";
+    setLoading(true);
+    setStatus(null);
+    try {
+      const token = await getValidAccessToken();
+      if (!token) return;
+      const list = await searchArtworkCovers(token, term);
+      setAlbums(list);
+      if (!list.length) {
+        setStatus(`No paintings found for "${term}".`);
+      }
+    } catch (e) {
+      setStatus(
+        e instanceof Error ? e.message : "Could not load painting search",
+      );
+      setAlbums([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const t = window.setTimeout(() => setIntroLoading(false), 1100);
@@ -636,6 +665,8 @@ export default function App() {
     getSfx().playConfirm();
     const chosenSource = pickerSource;
     setGalleryScope("all");
+    setSearchQuery("");
+    setSearchResults(null);
     setSelectedSource(chosenSource);
     localStorage.setItem(SOURCE_KEY, chosenSource);
 
@@ -664,6 +695,10 @@ export default function App() {
     }
 
     setSourcePickerOpen(false);
+    if (chosenSource === "liked-songs") {
+      void loadFromPaintingSearch(pickerSearchQuery);
+      return;
+    }
     void loadFromSpotify(chosenSource);
   };
 
@@ -1437,6 +1472,22 @@ export default function App() {
                 Movement
               </button>
             </div>
+
+            {pickerSource === "liked-songs" && (
+              <label
+                className="source-picker__playlist"
+                htmlFor="painting-search-input"
+              >
+                <span>Search paintings or artists</span>
+                <input
+                  id="painting-search-input"
+                  type="text"
+                  value={pickerSearchQuery}
+                  onChange={(e) => setPickerSearchQuery(e.target.value)}
+                  placeholder="e.g. Monet, still life, landscape"
+                />
+              </label>
+            )}
 
             {pickerSource === "playlist" &&
               connected &&

@@ -825,7 +825,8 @@
   color: var(--muted);
 }
 
-.source-picker__playlist select {
+.source-picker__playlist select,
+.source-picker__playlist input {
   border: 1px solid rgba(24, 30, 38, 0.18);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.95);
@@ -833,6 +834,11 @@
   padding: 10px;
   font: inherit;
   font-size: 13px;
+}
+
+.source-picker__playlist input:focus {
+  outline: none;
+  border-color: var(--ink);
 }
 
 .source-picker__note {
