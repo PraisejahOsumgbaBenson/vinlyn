@@ -343,6 +343,7 @@ export default function App() {
   const [similarArtworks, setSimilarArtworks] = useState<AlbumCover[]>([]);
   const sfxRef = useRef<UiSfx | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchRequestIdRef = useRef(0);
   const detailRequestTokenRef = useRef<string | null>(null);
   const configured = isSpotifyConfigured();
   const routeArtworkId = artworkIdFromPath(currentPath);
@@ -447,6 +448,30 @@ export default function App() {
       setAlbums([]);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const runHeaderSearch = useCallback(async (query: string) => {
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
+    setSearchLoading(true);
+    try {
+      const token = await getValidAccessToken();
+      if (!token || requestId !== searchRequestIdRef.current) return;
+      const results = await searchArtworkCovers(token, query);
+      if (requestId === searchRequestIdRef.current) {
+        setSearchResults(results);
+      }
+    } catch (e) {
+      if (requestId === searchRequestIdRef.current) {
+        setStatus(
+          e instanceof Error ? e.message : "Could not search paintings",
+        );
+      }
+    } finally {
+      if (requestId === searchRequestIdRef.current) {
+        setSearchLoading(false);
+      }
     }
   }, []);
 
@@ -708,6 +733,21 @@ export default function App() {
     void loadFromSpotify(chosenSource);
   };
 
+  const onSourcePickerSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    onSourceConfirm();
+  };
+
+  const onHeaderSearchSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const term = searchQuery.trim().toLowerCase();
+    searchInputRef.current?.blur();
+    if (!nicknameDone || !connected || !term) return;
+    setSearchQuery(term);
+    if (isBlockedSearchQuery(term)) return;
+    void runHeaderSearch(term);
+  };
+
   const onRefreshPage = () => {
     resumeSfx();
     getSfx().playTap();
@@ -955,6 +995,7 @@ export default function App() {
   useEffect(() => {
     if (!nicknameDone || !connected) return;
 
+    searchRequestIdRef.current += 1;
     if (blockedSearch) {
       setSearchResults([]);
       setSearchLoading(false);
@@ -967,36 +1008,15 @@ export default function App() {
       return;
     }
 
-    let cancelled = false;
     const timer = window.setTimeout(() => {
-      void (async () => {
-        setSearchLoading(true);
-        try {
-          const token = await getValidAccessToken();
-          if (!token || cancelled) return;
-          const results = await searchArtworkCovers(token, normalizedSearch);
-          if (!cancelled) {
-            setSearchResults(results);
-          }
-        } catch (e) {
-          if (!cancelled) {
-            const msg =
-              e instanceof Error ? e.message : "Could not search paintings";
-            setStatus(msg);
-          }
-        } finally {
-          if (!cancelled) {
-            setSearchLoading(false);
-          }
-        }
-      })();
+      void runHeaderSearch(normalizedSearch);
     }, 260);
 
     return () => {
-      cancelled = true;
+      searchRequestIdRef.current += 1;
       window.clearTimeout(timer);
     };
-  }, [blockedSearch, connected, nicknameDone, normalizedSearch]);
+  }, [blockedSearch, connected, nicknameDone, normalizedSearch, runHeaderSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1425,7 +1445,11 @@ export default function App() {
             >
               GESTURE <sup>{gestureEnabled ? "ON" : "OFF"}</sup>
             </button>
-            <div className="unveil-search">
+            <form
+              className="unveil-search"
+              onSubmit={onHeaderSearchSubmit}
+              role="search"
+            >
               <input
                 ref={searchInputRef}
                 className="unveil-search__input"
@@ -1445,7 +1469,7 @@ export default function App() {
                   Clear
                 </button>
               )}
-            </div>
+            </form>
           </aside>
         </>
       )}
@@ -1463,7 +1487,10 @@ export default function App() {
           aria-modal="true"
           aria-label="Choose gallery source"
         >
-          <div className="source-picker__card">
+          <form
+            className="source-picker__card"
+            onSubmit={onSourcePickerSubmit}
+          >
             <div className="source-picker__title">Load Artworks From</div>
             <div className="source-picker__choices">
               <button
@@ -1541,15 +1568,11 @@ export default function App() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                className="source-picker__confirm"
-                onClick={onSourceConfirm}
-              >
+              <button type="submit" className="source-picker__confirm">
                 {connected ? "Load" : "Continue"}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
 
@@ -1579,7 +1602,7 @@ export default function App() {
               favorites, or gather pieces into named collections.
             </p>
             <p className="about-dialog__note">
-              Keyboard: / to search, P for source, R to refresh, Escape to close.
+              Keyboard: / to search, Enter to submit, P for source, R to refresh, Escape to close.
             </p>
             <div className="source-picker__actions">
               <button

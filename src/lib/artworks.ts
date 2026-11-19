@@ -128,6 +128,19 @@ const MAX_COLLECTION_RESULTS = 60;
 const MAX_SEARCH_RESULTS = 80;
 const WIKI_SEARCH_LIMIT = 24;
 const WIKI_ID_PREFIX = "wiki:";
+const REQUEST_TIMEOUT_MS = 9000;
+const FEATURED_CACHE_KEY = "vinlyn_featured_covers";
+const FEATURED_CACHE_TTL = 24 * 60 * 60 * 1000;
+const SEARCH_CACHE_TTL = 5 * 60 * 1000;
+
+type CoverCache = {
+  version: 1;
+  covers: AlbumCover[];
+  savedAt: number;
+};
+
+const searchCache = new Map<string, CoverCache>();
+let featuredRefreshPromise: Promise<void> | null = null;
 
 const ART_MOVEMENTS: SpotifyPlaylist[] = [
   { id: "impressionism", name: "Impressionism", imageUrl: "", tracksTotal: 0 },
@@ -165,6 +178,55 @@ function dedupeCovers(list: AlbumCover[]): AlbumCover[] {
     out.push(cover);
   }
   return out;
+}
+
+export function mergeCoverBatches(
+  batches: PromiseSettledResult<AlbumCover[]>[],
+  maxResults: number,
+): AlbumCover[] {
+  const covers = batches.flatMap((batch) =>
+    batch.status === "fulfilled" ? batch.value : [],
+  );
+  return dedupeCovers(covers).slice(0, maxResults);
+}
+
+export function isCacheFresh(
+  savedAt: number,
+  now: number,
+  maxAgeMs: number,
+): boolean {
+  return Number.isFinite(savedAt) && now - savedAt >= 0 && now - savedAt < maxAgeMs;
+}
+
+function readCoverCache(key: string, maxAgeMs: number): AlbumCover[] | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CoverCache;
+    if (
+      parsed.version !== 1 ||
+      !Array.isArray(parsed.covers) ||
+      !isCacheFresh(parsed.savedAt, Date.now(), maxAgeMs)
+    ) {
+      return null;
+    }
+    return parsed.covers.length ? parsed.covers : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCoverCache(
+  key: string,
+  covers: AlbumCover[],
+  savedAt = Date.now(),
+): void {
+  try {
+    const cache: CoverCache = { version: 1, covers, savedAt };
+    localStorage.setItem(key, JSON.stringify(cache));
+  } catch {
+    // Storage can be unavailable in private browsing. The gallery still works.
+  }
 }
 
 function wikiIdFromPageId(pageId: number): string {
@@ -304,12 +366,27 @@ function compactArtTitle(text: string): string {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      throw new Error("Art API is taking too long. Try Refresh.");
+    }
+    throw e;
+  }
   if (!res.ok) {
     const text = (await res.text()).slice(0, 120);
     throw new Error(`Art API: ${res.status} ${text}`);
   }
   return (await res.json()) as T;
+}
+
+function pageNumbers(maxPages: number): number[] {
+  const count = Math.max(1, Math.min(maxPages, 4));
+  return Array.from({ length: count }, (_, index) => index + 1);
 }
 
 async function fetchSearchTotal(query: string): Promise<number> {
@@ -323,57 +400,87 @@ async function fetchSearchTotal(query: string): Promise<number> {
   return total;
 }
 
+type SearchPage = {
+  covers: AlbumCover[];
+  totalPages: number;
+};
+
+async function fetchSearchPage(
+  query: string,
+  page: number,
+  scoped: boolean,
+): Promise<SearchPage> {
+  const searchParams = historicalArtworkSearchParams(query, scoped);
+  const data = await fetchJson<AicResponse>(
+    `${apiBase}/artworks/search?${searchParams}&limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
+  );
+  return {
+    covers: (data.data ?? [])
+      .map(artworkToCover)
+      .filter((x): x is AlbumCover => Boolean(x)),
+    totalPages: Math.max(1, Number(data.pagination?.total_pages ?? page)),
+  };
+}
+
 async function fetchAllSearchCovers(
   query: string,
   maxResults = MAX_SEARCH_RESULTS,
   scoped = false,
 ): Promise<AlbumCover[]> {
-  const out: AlbumCover[] = [];
-  let page = 1;
-  let totalPages = 1;
   const maxPages = Math.ceil(maxResults / AIC_SAFE_LIMIT);
-  const searchParams = historicalArtworkSearchParams(query, scoped);
+  const first = await fetchSearchPage(query, 1, scoped);
+  const remainingPages = pageNumbers(maxPages).filter(
+    (page) => page > 1 && page <= first.totalPages,
+  );
 
-  // Filtering happens while mapping covers. Bounding by page count keeps a
-  // heavily filtered query from walking every page of the collection.
-  while (page <= totalPages && page <= maxPages) {
-    const data = await fetchJson<AicResponse>(
-      `${apiBase}/artworks/search?${searchParams}&limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
-    );
-    const batch = (data.data ?? [])
-      .map(artworkToCover)
-      .filter((x): x is AlbumCover => Boolean(x));
-    out.push(...batch);
+  // Remaining pages are independent. Running them together keeps one slow
+  // museum page from adding its full latency to every search.
+  const remaining = await Promise.allSettled(
+    remainingPages.map((page) => fetchSearchPage(query, page, scoped)),
+  );
+  const batches: PromiseSettledResult<AlbumCover[]>[] = [
+    { status: "fulfilled", value: first.covers },
+    ...remaining.map((result) =>
+      result.status === "fulfilled"
+        ? { status: "fulfilled" as const, value: result.value.covers }
+        : { status: "rejected" as const, reason: result.reason },
+    ),
+  ];
 
-    totalPages = Math.max(1, Number(data.pagination?.total_pages ?? page));
-    page += 1;
-  }
+  return mergeCoverBatches(batches, maxResults);
+}
 
-  return dedupeCovers(out).slice(0, maxResults);
+async function fetchFeaturedPage(page: number): Promise<AlbumCover[]> {
+  const data = await fetchJson<AicResponse>(
+    `${apiBase}/artworks?limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
+  );
+  return (data.data ?? [])
+    .map(artworkToCover)
+    .filter((x): x is AlbumCover => Boolean(x));
 }
 
 async function fetchAllFeaturedCovers(
   maxResults = MAX_COLLECTION_RESULTS,
 ): Promise<AlbumCover[]> {
-  const out: AlbumCover[] = [];
-  let page = 1;
-  let totalPages = 1;
   const maxPages = Math.ceil(maxResults / AIC_SAFE_LIMIT);
+  const batches = await Promise.allSettled(
+    pageNumbers(maxPages).map((page) => fetchFeaturedPage(page)),
+  );
+  const covers = mergeCoverBatches(batches, maxResults);
 
-  while (page <= totalPages && page <= maxPages) {
-    const data = await fetchJson<AicResponse>(
-      `${apiBase}/artworks?limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
-    );
-    const batch = (data.data ?? [])
-      .map(artworkToCover)
-      .filter((x): x is AlbumCover => Boolean(x));
-    out.push(...batch);
+  if (covers.length) writeCoverCache(FEATURED_CACHE_KEY, covers);
+  return covers;
+}
 
-    totalPages = Math.max(1, Number(data.pagination?.total_pages ?? page));
-    page += 1;
+function refreshFeaturedCache(): Promise<void> {
+  if (!featuredRefreshPromise) {
+    featuredRefreshPromise = fetchAllFeaturedCovers()
+      .then(() => undefined)
+      .finally(() => {
+        featuredRefreshPromise = null;
+      });
   }
-
-  return dedupeCovers(out).slice(0, maxResults);
+  return featuredRefreshPromise;
 }
 
 async function fetchWikiSearchCovers(
@@ -404,6 +511,12 @@ async function fetchCombinedSearchCovers(
   maxResults = MAX_SEARCH_RESULTS,
   scoped = false,
 ): Promise<AlbumCover[]> {
+  const cacheKey = `${scoped ? "field" : "broad"}:${query.trim().toLowerCase()}:${maxResults}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && isCacheFresh(cached.savedAt, Date.now(), SEARCH_CACHE_TTL)) {
+    return cached.covers;
+  }
+
   const aicLimit = Math.max(1, maxResults - WIKI_SEARCH_LIMIT);
   const [aic, wiki] = await Promise.all([
     fetchAllSearchCovers(query, aicLimit, scoped),
@@ -426,7 +539,11 @@ async function fetchCombinedSearchCovers(
     );
   }
 
-  return dedupeCovers([...artworkResults, ...wiki]).slice(0, maxResults);
+  const covers = dedupeCovers([...artworkResults, ...wiki]).slice(0, maxResults);
+  if (covers.length) {
+    searchCache.set(cacheKey, { version: 1, covers, savedAt: Date.now() });
+  }
+  return covers;
 }
 
 async function fetchWikiDetail(pageId: number): Promise<SpotifyAlbumDetail> {
@@ -535,6 +652,11 @@ export async function fetchSavedAlbumCovers(
   _token: string,
 ): Promise<AlbumCover[]> {
   void _token;
+  const cached = readCoverCache(FEATURED_CACHE_KEY, FEATURED_CACHE_TTL);
+  if (cached) {
+    void refreshFeaturedCache();
+    return cached;
+  }
   return fetchAllFeaturedCovers();
 }
 

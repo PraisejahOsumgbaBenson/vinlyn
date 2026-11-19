@@ -3,6 +3,9 @@ import {
   historicalArtworkSearchParams,
   isAllowedArtwork,
   isBlockedSearchQuery,
+  isCacheFresh,
+  mergeCoverBatches,
+  type AlbumCover,
 } from "./artworks";
 
 describe("historical artwork filtering", () => {
@@ -85,5 +88,36 @@ describe("historicalArtworkSearchParams", () => {
     const params = historicalArtworkSearchParams("painting", false);
     expect(params).toContain("subject_titles%5D=nudes");
     expect(params).toContain("artwork_type_title%5D=photograph");
+  });
+});
+
+describe("loading helpers", () => {
+  it("merges successful page batches and skips failed pages", () => {
+    const first: AlbumCover = {
+      id: "1",
+      name: "First",
+      artist: "Artist",
+      imageUrl: "/first.jpg",
+    };
+    const second: AlbumCover = {
+      id: "2",
+      name: "Second",
+      artist: "Artist",
+      imageUrl: "/second.jpg",
+    };
+    const batches: PromiseSettledResult<AlbumCover[]>[] = [
+      { status: "fulfilled", value: [first, { ...first }] },
+      { status: "rejected", reason: new Error("Slow page") },
+      { status: "fulfilled", value: [second] },
+    ];
+
+    expect(mergeCoverBatches(batches, 10)).toEqual([first, second]);
+  });
+
+  it("treats a cache entry as fresh only inside its lifetime", () => {
+    const now = 1_000_000;
+
+    expect(isCacheFresh(now - 1_000, now, 5_000)).toBe(true);
+    expect(isCacheFresh(now - 6_000, now, 5_000)).toBe(false);
   });
 });

@@ -162,7 +162,7 @@ const FannedCard = memo(function FannedCard({
             alt=""
             width={cardSize}
             height={cardSize}
-            loading={i < 20 ? "eager" : "lazy"}
+            loading={i < 8 ? "eager" : "lazy"}
             decoding="async"
             draggable={false}
             onError={(e) => {
