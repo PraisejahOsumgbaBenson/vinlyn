@@ -12,7 +12,8 @@ An interactive, gesture-driven digital art gallery that transforms how you brows
 - **Dual Layout Modes** — Switch between the immersive drag view and a traditional grid layout
 - **Personal Gallery Name** (Your name is saved in this browser, used on the welcome screen, and suggested as the default collection name. Change it from the header at any time.)
 - **Guided Controls** (The About dialog explains gestures and shortcuts. The source label in the filter panel opens the source picker.)
-- **Smart Search** (Search paintings, artists, and movements across the Art Institute of Chicago API and Wikipedia. Search matches artwork titles, artists, and styles, so "monalisa" finds the Mona Lisa instead of unrelated works. Wikipedia results are limited to art and art movements, never biographies or celebrity photos. The source picker also has a Painting Search mode with its own search term.)
+- **Smart Search** (Search paintings, artists, and movements across the Art Institute of Chicago API and Wikipedia. Search matches artwork titles, artists, and styles, so "monalisa" finds the Mona Lisa instead of unrelated works. Wikipedia results are limited to art and art movements, never biographies or celebrity photos. Sexual or body-focused queries are blocked with a "We can't share that" message. The source picker also has a Painting Search mode with its own search term.)
+- **Historical Collection** (The gallery shows paintings, prints, and sculptures made by 1900. Photographs, modern styles, and works that depict nudity are left out.)
 - **Reliable Images** (Artwork images use a size that fits each source, stepping down to smaller sizes when a source image is too small.)
 - **Responsive Design** — Adaptive card sizing and layout for desktop and mobile viewports
 - **Offline-Ready Static Assets** — MediaPipe vision runtime bundled locally for reliable gesture detection
@@ -69,6 +70,12 @@ npm run preview
 npm run lint
 ```
 
+### Testing
+
+```bash
+bun test
+```
+
 ## Project Structure
 
 ```
@@ -82,6 +89,7 @@ src/
 ├── lib/
 │   ├── index.ts                   # Public API exports
 │   ├── artworks.ts                # Art Institute of Chicago + Wikipedia API integration
+│   ├── artworks.test.ts           # Tests for historical and blocked-search rules
 │   └── sfx.ts                     # Procedural UI sound synthesis via Web Audio API
 └── main.tsx                       # Application entry point
 ```

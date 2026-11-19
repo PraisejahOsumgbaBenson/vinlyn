@@ -49,8 +49,12 @@ type AicArtwork = {
   artist_id?: number;
   image_id?: string;
   date_display?: string;
+  date_start?: number;
+  date_end?: number;
   style_title?: string;
   artwork_type_title?: string;
+  classification_title?: string;
+  subject_titles?: string[];
   medium_display?: string;
   dimensions?: string;
   place_of_origin?: string;
@@ -120,17 +124,15 @@ const iiifBase = useLocalProxy
   : "https://www.artic.edu/iiif/2";
 const detailCache = new Map<string, SpotifyAlbumDetail>();
 const AIC_SAFE_LIMIT = 20;
-const MAX_COLLECTION_RESULTS = 240;
-const MAX_SEARCH_RESULTS = 240;
-const WIKI_SEARCH_LIMIT = 48;
+const MAX_COLLECTION_RESULTS = 60;
+const MAX_SEARCH_RESULTS = 80;
+const WIKI_SEARCH_LIMIT = 24;
 const WIKI_ID_PREFIX = "wiki:";
 
 const ART_MOVEMENTS: SpotifyPlaylist[] = [
   { id: "impressionism", name: "Impressionism", imageUrl: "", tracksTotal: 0 },
   { id: "renaissance", name: "Renaissance", imageUrl: "", tracksTotal: 0 },
   { id: "baroque", name: "Baroque", imageUrl: "", tracksTotal: 0 },
-  { id: "surrealism", name: "Surrealism", imageUrl: "", tracksTotal: 0 },
-  { id: "modern", name: "Modern Art", imageUrl: "", tracksTotal: 0 },
 ];
 
 const movementTotalCache = new Map<string, number>();
@@ -145,7 +147,7 @@ function parseArtist(art: AicArtwork): string {
 }
 
 function artworkToCover(art: AicArtwork): AlbumCover | null {
-  if (!art.image_id) return null;
+  if (!art.image_id || !isAllowedArtwork(art)) return null;
   return {
     id: String(art.id),
     name: art.title || "Untitled",
@@ -196,16 +198,56 @@ const PERSON_DESCRIPTION_PATTERN = new RegExp(
   "i",
 );
 
+// The gallery is a historical art collection. Photographs, modern movements
+// and works that depict nudity are outside that scope.
+const HISTORICAL_CUTOFF_YEAR = 1900;
+const BLOCKED_SUBJECT_TERMS = ["nudes", "naked", "bather", "bathing", "torso", "erotic"];
+const MODERN_STYLE_PATTERN =
+  /\b(pop art|modern|contemporary|abstract|surrealism|cubism|futurism|expressionism|bauhaus|art deco|minimalism|conceptual|performance art|digital)\b/i;
+const PHOTOGRAPH_PATTERN =
+  /\b(photograph|photography|photo|daguerreotype|gelatin silver|cyanotype)\b/i;
+const SEXUAL_CONTENT_PATTERN =
+  /\b(nude|nudes|nudity|naked|undressed|undressing|erotic|erotica|sexual|sex|bather|bathers|bathing|torso|odalisque|venus|aphrodite|bacchic|satyr|seduction|sensual)\b/i;
+const BLOCKED_QUERY_PATTERN =
+  /\b(nude|nudes|nudity|naked|undress|undressed|undressing|erotic|erotica|sex|sexual|porn|pornography|nsfw|explicit|penis|vagina|boobs|tits|fetish|orgy|lingerie|seductive|bather|bathers|bathing|torso|odalisque)\b/i;
+
+export function isBlockedSearchQuery(query: string): boolean {
+  return BLOCKED_QUERY_PATTERN.test(query.trim());
+}
+
+export function isAllowedArtwork(art: AicArtwork): boolean {
+  const media = [art.artwork_type_title, art.classification_title, art.medium_display]
+    .filter(Boolean)
+    .join(" ");
+  if (PHOTOGRAPH_PATTERN.test(media)) return false;
+
+  const year = art.date_end ?? art.date_start;
+  if (year !== undefined && year > HISTORICAL_CUTOFF_YEAR) return false;
+  if (MODERN_STYLE_PATTERN.test(art.style_title || "")) return false;
+
+  const description = [
+    art.title,
+    art.thumbnail?.alt_text,
+    ...(art.subject_titles ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return !SEXUAL_CONTENT_PATTERN.test(description);
+}
+
 function isArtWikiPage(page: WikiPage): boolean {
   const description = page.description || "";
   const categories = (page.categories || []).map((entry) => entry.title);
+  const pageText = `${page.title} ${description} ${categories.join(" ")}`;
   const isArt =
     categories.some((category) => ART_PAGE_PATTERN.test(category)) ||
     ART_PAGE_PATTERN.test(description);
   const isPerson =
     categories.some((category) => PERSON_CATEGORY_PATTERN.test(category)) ||
     PERSON_DESCRIPTION_PATTERN.test(description);
-  return isArt && !isPerson;
+  const isModern =
+    MODERN_STYLE_PATTERN.test(pageText) || PHOTOGRAPH_PATTERN.test(pageText);
+  return isArt && !isPerson && !isModern;
 }
 
 // User-entered queries must match artwork fields. The plain `q` parameter
@@ -218,17 +260,53 @@ const SCOPED_SEARCH_FIELDS = [
   "style_title",
 ];
 
-function scopedSearchParams(query: string): string {
-  return SCOPED_SEARCH_FIELDS.map(
-    (field) =>
-      `query[bool][should][][match_phrase][${field}]=${encodeURIComponent(query)}`,
-  ).join("&");
+function requestParam(key: string, value: string | number): string {
+  return `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`;
+}
+
+// Apply the historical rules in the API query as well as in the mapper. That
+// keeps a filtered search from walking every page of the collection before it
+// finds enough allowed artworks.
+export function historicalArtworkSearchParams(
+  query: string,
+  scoped: boolean,
+): string {
+  const parts: string[] = [];
+
+  if (scoped) {
+    for (const field of SCOPED_SEARCH_FIELDS) {
+      parts.push(
+        requestParam(
+          `query[bool][should][][match_phrase][${field}]`,
+          query,
+        ),
+      );
+    }
+    parts.push(requestParam("query[bool][minimum_should_match]", 1));
+  } else {
+    parts.push(requestParam("q", query));
+  }
+
+  parts.push(
+    requestParam("query[bool][filter][][range][date_end][lte]", HISTORICAL_CUTOFF_YEAR),
+  );
+  for (const term of BLOCKED_SUBJECT_TERMS) {
+    parts.push(requestParam("query[bool][must_not][][match][subject_titles]", term));
+  }
+  parts.push(requestParam("query[bool][must_not][][match][artwork_type_title]", "photograph"));
+  parts.push(requestParam("query[bool][must_not][][match][classification_title]", "photograph"));
+
+  return parts.join("&");
+}
+
+function compactArtTitle(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
-    const text = await res.text();
+    const text = (await res.text()).slice(0, 120);
     throw new Error(`Art API: ${res.status} ${text}`);
   }
   return (await res.json()) as T;
@@ -238,7 +316,7 @@ async function fetchSearchTotal(query: string): Promise<number> {
   const cached = movementTotalCache.get(query);
   if (typeof cached === "number") return cached;
   const data = await fetchJson<AicResponse>(
-    `${apiBase}/artworks/search?q=${encodeURIComponent(query)}&limit=1&fields=id`,
+    `${apiBase}/artworks/search?${historicalArtworkSearchParams(query, false)}&limit=1&fields=id`,
   );
   const total = Math.max(0, Number(data.pagination?.total ?? 0));
   movementTotalCache.set(query, total);
@@ -253,11 +331,12 @@ async function fetchAllSearchCovers(
   const out: AlbumCover[] = [];
   let page = 1;
   let totalPages = 1;
-  const searchParams = scoped
-    ? scopedSearchParams(query)
-    : `q=${encodeURIComponent(query)}`;
+  const maxPages = Math.ceil(maxResults / AIC_SAFE_LIMIT);
+  const searchParams = historicalArtworkSearchParams(query, scoped);
 
-  while (page <= totalPages && out.length < maxResults) {
+  // Filtering happens while mapping covers. Bounding by page count keeps a
+  // heavily filtered query from walking every page of the collection.
+  while (page <= totalPages && page <= maxPages) {
     const data = await fetchJson<AicResponse>(
       `${apiBase}/artworks/search?${searchParams}&limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
     );
@@ -279,8 +358,9 @@ async function fetchAllFeaturedCovers(
   const out: AlbumCover[] = [];
   let page = 1;
   let totalPages = 1;
+  const maxPages = Math.ceil(maxResults / AIC_SAFE_LIMIT);
 
-  while (page <= totalPages && out.length < maxResults) {
+  while (page <= totalPages && page <= maxPages) {
     const data = await fetchJson<AicResponse>(
       `${apiBase}/artworks?limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
     );
@@ -335,11 +415,15 @@ async function fetchCombinedSearchCovers(
   // museum versions of the work appear alongside the reference entry.
   let artworkResults = aic;
   if (scoped && artworkResults.length === 0 && wiki.length > 0) {
-    artworkResults = await fetchAllSearchCovers(
-      wiki[0].name,
+    const correctedTitle = wiki[0].name;
+    const correctedResults = await fetchAllSearchCovers(
+      correctedTitle,
       aicLimit,
       true,
     ).catch(() => []);
+    artworkResults = correctedResults.filter(
+      (cover) => compactArtTitle(cover.name) === compactArtTitle(correctedTitle),
+    );
   }
 
   return dedupeCovers([...artworkResults, ...wiki]).slice(0, maxResults);
@@ -392,8 +476,12 @@ function fieldsList(): string {
     "artist_id",
     "image_id",
     "date_display",
+    "date_start",
+    "date_end",
     "style_title",
     "artwork_type_title",
+    "classification_title",
+    "subject_titles",
     "medium_display",
     "dimensions",
     "place_of_origin",

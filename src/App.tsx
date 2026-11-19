@@ -17,6 +17,7 @@ import {
   fetchSavedAlbumCovers,
   fetchUserPlaylists,
   getValidAccessToken,
+  isBlockedSearchQuery,
   isSpotifyConfigured,
   IMAGE_FALLBACK,
   nextImageSize,
@@ -424,6 +425,11 @@ export default function App() {
 
   const loadFromPaintingSearch = useCallback(async (query: string) => {
     const term = query.trim() || "painting";
+    if (isBlockedSearchQuery(term)) {
+      setAlbums([]);
+      setStatus("We can't share that. Search for artwork or artists instead.");
+      return;
+    }
     setLoading(true);
     setStatus(null);
     try {
@@ -945,8 +951,15 @@ export default function App() {
   };
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
+  const blockedSearch = isBlockedSearchQuery(normalizedSearch);
   useEffect(() => {
     if (!nicknameDone || !connected) return;
+
+    if (blockedSearch) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
 
     if (!normalizedSearch) {
       setSearchResults(null);
@@ -983,7 +996,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [connected, nicknameDone, normalizedSearch]);
+  }, [blockedSearch, connected, nicknameDone, normalizedSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1084,6 +1097,13 @@ export default function App() {
     (albums.length > 0 || hasSearchQuery || galleryScope !== "all") &&
     visibleAlbums.length === 0;
   const emptyState = (() => {
+    if (blockedSearch && hasSearchQuery) {
+      return {
+        message: "We can't share that. Search for artwork or artists instead.",
+        action: "clear-search" as const,
+      };
+    }
+
     if (searchLoading && hasSearchQuery) {
       return {
         message: "Searching paintings...",
