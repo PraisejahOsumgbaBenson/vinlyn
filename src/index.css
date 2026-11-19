@@ -3,9 +3,10 @@
   --ink: #141414;
   --muted: #6a6864;
   --hairline: rgba(20, 20, 20, 0.12);
-  --accent: #1db954;
+  --accent: #141414;
   --polka-dot-pattern: none;
   --polka-dot-size: 800px 800px, 800px 800px;
+  --display-font: Georgia, "Times New Roman", serif;
 
   font-family:
     system-ui,
