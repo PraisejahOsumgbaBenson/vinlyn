@@ -475,6 +475,7 @@ export default function App() {
     }
   }, []);
 
+
   useEffect(() => {
     const t = window.setTimeout(() => setIntroLoading(false), 1100);
     return () => window.clearTimeout(t);
@@ -1603,6 +1604,96 @@ export default function App() {
             </p>
             <p className="about-dialog__note">
               Keyboard: / to search, Enter to submit, P for source, R to refresh, Escape to close.
+            </p>
+            <div className="source-picker__actions">
+              <button
+                type="button"
+                className="source-picker__confirm"
+                onClick={() => setAboutOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {nameEditorOpen && !isArtworkPage && (
+        <div
+          className="source-picker"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setNameEditorOpen(false);
+          }}
+        >
+          <div
+            className="source-picker__card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="name-editor-title"
+          >
+            <div className="source-picker__title" id="name-editor-title">
+              Your gallery name
+            </div>
+            <form className="name-edit-form" onSubmit={onNameEditorSubmit}>
+              <input
+                type="text"
+                value={nicknameInput}
+                onChange={(e) =>
+                  setNicknameInput(e.target.value.slice(0, 24))
+                }
+                maxLength={24}
+                placeholder="Enter a name"
+                aria-label="Your gallery name"
+                autoFocus
+              />
+              <div className="source-picker__actions">
+                <button
+                  type="button"
+                  className="source-picker__cancel"
+                  onClick={() => setNameEditorOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="source-picker__confirm"
+                  disabled={!nicknameInput.trim()}
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {aboutOpen && !isArtworkPage && (
+        <div
+          className="source-picker"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setAboutOpen(false);
+          }}
+        >
+          <div
+            className="source-picker__card about-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="about-title"
+          >
+            <div className="source-picker__title" id="about-title">
+              About Vinlyn
+            </div>
+            <p>
+              Vinlyn is a quiet gallery of the Art Institute of Chicago
+              collection. Drag the stack to move through works, then open one
+              to read its story, palette, and history.
+            </p>
+            <p>
+              Use Search to find a painting or artist. Save what you love to
+              favorites, or gather pieces into named collections.
+            </p>
+            <p className="about-dialog__note">
+              Keyboard: / to search, P for source, R to refresh, Escape to close.
             </p>
             <div className="source-picker__actions">
               <button

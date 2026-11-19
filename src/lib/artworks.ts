@@ -517,6 +517,7 @@ async function fetchCombinedSearchCovers(
     return cached.covers;
   }
 
+
   const aicLimit = Math.max(1, maxResults - WIKI_SEARCH_LIMIT);
   const [aic, wiki] = await Promise.all([
     fetchAllSearchCovers(query, aicLimit, scoped),
