@@ -156,8 +156,7 @@ const FannedCard = memo(function FannedCard({
           className="ribbon-card__side ribbon-card__side--left"
           aria-hidden
         />
-        <span className="ribbon-card__fallback" aria-hidden />
-        {album.imageUrl && (
+        {album.imageUrl ? (
           <img
             src={album.imageUrl}
             alt=""
@@ -178,6 +177,8 @@ const FannedCard = memo(function FannedCard({
               image.src = IMAGE_FALLBACK;
             }}
           />
+        ) : (
+          <span className="ribbon-card__fallback" aria-hidden />
         )}
       </div>
     </button>
