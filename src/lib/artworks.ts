@@ -80,6 +80,7 @@ type WikiPage = {
   extract?: string;
   description?: string;
   thumbnail?: { source?: string };
+  categories?: { title: string }[];
 };
 
 type WikiResponse = {
@@ -182,19 +183,46 @@ function firstSentence(text: string): string {
   return (match?.[1] || cleaned).trim();
 }
 
-function normalizeSearchText(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+// Wikipedia search also returns actors, films and songs. Keep only pages that
+// describe an artwork, an art movement or an art collection. Person role words
+// in a category mean the page is a biography, even when another category
+// mentions a painting technique.
+const ART_PAGE_PATTERN =
+  /\b(paintings?|drawings?|sculptures?|photographs?|prints?|frescoes?|mosaics?|ceramics?|pottery|textiles?|tapestries?|miniatures?|manuscripts?|engravings?|etchings?|lithographs?|woodcuts?|artworks?|works of art|portraits?|museums?|art galleries|architecture|cathedrals?|temples?|statues?|busts?|reliefs?|art movements?|visual arts?|installations?|collages?)\b/i;
+const PERSON_CATEGORY_PATTERN =
+  /\b(actresses?|actors?|films?|television|tv series|singers?|musicians?|music|musical groups?|bands?|living people|sports?|players?|politicians?|journalists?|models?|dancers?|painters?|printmakers?|engravers?|sculptors?|photographers?|architects?|illustrators?|designers?|writers?|authors?|poets?|composers?|rugby|football|cricket|novels?|songs?|albums?|newspapers?|episodes|comics?|video games?|software|companies|organizations|occupations?)\b/i;
+const PERSON_DESCRIPTION_PATTERN = new RegExp(
+  `${PERSON_CATEGORY_PATTERN.source}|\\bartists?\\b|\\bbiography\\b`,
+  "i",
+);
+
+function isArtWikiPage(page: WikiPage): boolean {
+  const description = page.description || "";
+  const categories = (page.categories || []).map((entry) => entry.title);
+  const isArt =
+    categories.some((category) => ART_PAGE_PATTERN.test(category)) ||
+    ART_PAGE_PATTERN.test(description);
+  const isPerson =
+    categories.some((category) => PERSON_CATEGORY_PATTERN.test(category)) ||
+    PERSON_DESCRIPTION_PATTERN.test(description);
+  return isArt && !isPerson;
 }
 
-function coverMatchesStrictQuery(cover: AlbumCover, query: string): boolean {
-  const terms = normalizeSearchText(query).split(" ").filter(Boolean);
-  if (!terms.length) return true;
-  const haystack = normalizeSearchText(`${cover.name} ${cover.artist}`);
-  return terms.every((term) => haystack.includes(term));
+// User-entered queries must match artwork fields. The plain `q` parameter
+// matches catalogue text and boosts anything, so a single word such as
+// "monalisa" returns the whole collection instead of the Mona Lisa.
+const SCOPED_SEARCH_FIELDS = [
+  "title",
+  "artist_title",
+  "artist_display",
+  "style_title",
+];
+
+function scopedSearchParams(query: string): string {
+  return SCOPED_SEARCH_FIELDS.map(
+    (field) =>
+      `query[bool][should][][match_phrase][${field}]=${encodeURIComponent(query)}`,
+  ).join("&");
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -220,14 +248,18 @@ async function fetchSearchTotal(query: string): Promise<number> {
 async function fetchAllSearchCovers(
   query: string,
   maxResults = MAX_SEARCH_RESULTS,
+  scoped = false,
 ): Promise<AlbumCover[]> {
   const out: AlbumCover[] = [];
   let page = 1;
   let totalPages = 1;
+  const searchParams = scoped
+    ? scopedSearchParams(query)
+    : `q=${encodeURIComponent(query)}`;
 
   while (page <= totalPages && out.length < maxResults) {
     const data = await fetchJson<AicResponse>(
-      `${apiBase}/artworks/search?q=${encodeURIComponent(query)}&limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
+      `${apiBase}/artworks/search?${searchParams}&limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
     );
     const batch = (data.data ?? [])
       .map(artworkToCover)
@@ -270,12 +302,15 @@ async function fetchWikiSearchCovers(
 ): Promise<AlbumCover[]> {
   const limit = Math.max(1, Math.min(maxResults, WIKI_SEARCH_LIMIT));
   const data = await fetchJson<WikiResponse>(
-    `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${limit}&prop=pageimages|description&piprop=thumbnail&pithumbsize=843&format=json&formatversion=2&origin=*`,
+    `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${limit}&prop=pageimages|description|categories&cllimit=max&piprop=thumbnail&pithumbsize=843&format=json&formatversion=2&origin=*`,
   );
 
   const pages = data.query?.pages ?? [];
   return pages
-    .filter((page) => Boolean(page.pageid && page.thumbnail?.source))
+    .filter(
+      (page) =>
+        Boolean(page.pageid && page.thumbnail?.source) && isArtWikiPage(page),
+    )
     .map((page) => ({
       id: wikiIdFromPageId(page.pageid),
       name: page.title || "Untitled",
@@ -287,12 +322,27 @@ async function fetchWikiSearchCovers(
 async function fetchCombinedSearchCovers(
   query: string,
   maxResults = MAX_SEARCH_RESULTS,
+  scoped = false,
 ): Promise<AlbumCover[]> {
+  const aicLimit = Math.max(1, maxResults - WIKI_SEARCH_LIMIT);
   const [aic, wiki] = await Promise.all([
-    fetchAllSearchCovers(query, Math.max(1, maxResults - WIKI_SEARCH_LIMIT)),
+    fetchAllSearchCovers(query, aicLimit, scoped),
     fetchWikiSearchCovers(query, WIKI_SEARCH_LIMIT).catch(() => []),
   ]);
-  return dedupeCovers([...aic, ...wiki]).slice(0, maxResults);
+
+  // Wikipedia resolves concatenated titles such as "monalisa" to "Mona Lisa".
+  // Reuse that title when the scoped artwork search found nothing, so the
+  // museum versions of the work appear alongside the reference entry.
+  let artworkResults = aic;
+  if (scoped && artworkResults.length === 0 && wiki.length > 0) {
+    artworkResults = await fetchAllSearchCovers(
+      wiki[0].name,
+      aicLimit,
+      true,
+    ).catch(() => []);
+  }
+
+  return dedupeCovers([...artworkResults, ...wiki]).slice(0, maxResults);
 }
 
 async function fetchWikiDetail(pageId: number): Promise<SpotifyAlbumDetail> {
@@ -439,15 +489,12 @@ export async function fetchPlaylistAlbumCovers(
 export async function searchArtworkCovers(
   _token: string,
   query: string,
-  strictMatch = false,
 ): Promise<AlbumCover[]> {
   void _token;
   const term = query.trim();
   if (!term) return [];
 
-  const results = await fetchCombinedSearchCovers(term);
-  if (!strictMatch) return results;
-  return results.filter((cover) => coverMatchesStrictQuery(cover, term));
+  return fetchCombinedSearchCovers(term, MAX_SEARCH_RESULTS, true);
 }
 
 export async function fetchAlbumDetail(

@@ -961,11 +961,7 @@ export default function App() {
         try {
           const token = await getValidAccessToken();
           if (!token || cancelled) return;
-          const results = await searchArtworkCovers(
-            token,
-            normalizedSearch,
-            true,
-          );
+          const results = await searchArtworkCovers(token, normalizedSearch);
           if (!cancelled) {
             setSearchResults(results);
           }
