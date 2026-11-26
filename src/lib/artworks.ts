@@ -128,7 +128,7 @@ const detailCache = new Map<string, SpotifyAlbumDetail>();
 const AIC_PAGE_LIMIT = 100;
 const MAX_COLLECTION_RESULTS = 60;
 const MAX_SEARCH_RESULTS = 80;
-export const MOVEMENT_RESULT_LIMIT = 200;
+export const MOVEMENT_RESULT_LIMIT = 300;
 const WIKI_SEARCH_LIMIT = 24;
 const WIKI_ID_PREFIX = "wiki:";
 const REQUEST_TIMEOUT_MS = 9000;
@@ -424,24 +424,16 @@ function pageNumbers(maxPages: number): number[] {
   return Array.from({ length: count }, (_, index) => index + 1);
 }
 
-type SearchPage = {
-  covers: AlbumCover[];
-  totalPages: number;
-};
-
 async function fetchSearchPage(
   searchParams: string,
   page: number,
-): Promise<SearchPage> {
+): Promise<AlbumCover[]> {
   const data = await fetchJson<AicResponse>(
     `${apiBase}/artworks/search?${searchParams}&limit=${AIC_PAGE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
   );
-  return {
-    covers: (data.data ?? [])
-      .map(artworkToCover)
-      .filter((x): x is AlbumCover => Boolean(x)),
-    totalPages: Math.max(1, Number(data.pagination?.total_pages ?? page)),
-  };
+  return (data.data ?? [])
+    .map(artworkToCover)
+    .filter((x): x is AlbumCover => Boolean(x));
 }
 
 async function fetchAllSearchCovers(
@@ -450,26 +442,12 @@ async function fetchAllSearchCovers(
   scoped = false,
   searchParams = historicalArtworkSearchParams(query, scoped),
 ): Promise<AlbumCover[]> {
+  // Every page is independent. Running them together keeps one slow museum
+  // page from adding its full latency to every movement load.
   const maxPages = Math.ceil(maxResults / AIC_PAGE_LIMIT);
-  const first = await fetchSearchPage(searchParams, 1);
-  const remainingPages = pageNumbers(maxPages).filter(
-    (page) => page > 1 && page <= first.totalPages,
+  const batches = await Promise.allSettled(
+    pageNumbers(maxPages).map((page) => fetchSearchPage(searchParams, page)),
   );
-
-  // Remaining pages are independent. Running them together keeps one slow
-  // museum page from adding its full latency to every search.
-  const remaining = await Promise.allSettled(
-    remainingPages.map((page) => fetchSearchPage(searchParams, page)),
-  );
-  const batches: PromiseSettledResult<AlbumCover[]>[] = [
-    { status: "fulfilled", value: first.covers },
-    ...remaining.map((result) =>
-      result.status === "fulfilled"
-        ? { status: "fulfilled" as const, value: result.value.covers }
-        : { status: "rejected" as const, reason: result.reason },
-    ),
-  ];
-
   return mergeCoverBatches(batches, maxResults);
 }
 

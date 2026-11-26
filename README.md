@@ -130,7 +130,7 @@ Artwork data flows from two sources:
 - **Art Institute of Chicago** — Primary source for high-resolution images, metadata, and collection browsing
 - **Wikipedia** — Supplementary source for artist context and artwork descriptions
 
-Both are unified under a common `AlbumCover` / `SpotifyAlbumDetail` type system. The museum API allows up to 100 records per page. Movement collections load up to 200 related historical works, including period labels such as Mannerism and Rococo, while ordinary searches stay capped at 80 results.
+Both are unified under a common `AlbumCover` / `SpotifyAlbumDetail` type system. The museum API allows up to 100 records per page. Movement collections load up to 300 related historical works, including period labels such as Mannerism and Rococo, while ordinary searches stay capped at 80 results. A movement stops at the number of matching works the museum actually has.
 
 ### Audio System
 

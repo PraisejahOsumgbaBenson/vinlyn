@@ -114,7 +114,7 @@ describe("movement artwork loading", () => {
   });
 
   it("loads a deep movement collection instead of a small sample", () => {
-    expect(MOVEMENT_RESULT_LIMIT).toBeGreaterThanOrEqual(200);
+    expect(MOVEMENT_RESULT_LIMIT).toBeGreaterThanOrEqual(300);
   });
 
   it("fills the full movement target from museum pages", async () => {
@@ -158,6 +158,7 @@ describe("movement artwork loading", () => {
 
       expect(covers).toHaveLength(MOVEMENT_RESULT_LIMIT);
       expect(urls.some((url) => url.includes("page=2"))).toBe(true);
+      expect(urls.some((url) => url.includes("page=3"))).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }
