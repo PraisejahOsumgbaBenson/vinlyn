@@ -4,6 +4,7 @@ import {
   isAllowedArtwork,
   isBlockedSearchQuery,
   isCacheFresh,
+  isArtWikiPage,
   mergeCoverBatches,
   type AlbumCover,
 } from "./artworks";
@@ -75,6 +76,64 @@ describe("blocked searches", () => {
   it("allows art queries", () => {
     expect(isBlockedSearchQuery("monalisa")).toBe(false);
     expect(isBlockedSearchQuery("impressionism")).toBe(false);
+  });
+});
+
+describe("Wikipedia art page filtering", () => {
+  const starryNight = {
+    pageid: 186987,
+    title: "The Starry Night",
+    description: "1889 painting by Vincent van Gogh",
+    thumbnail: { source: "https://example.com/starry-night.jpg" },
+    categories: [
+      { title: "Category:1889 paintings" },
+      { title: "Category:Paintings by Vincent van Gogh" },
+      {
+        title:
+          "Category:Paintings in the Museum of Modern Art (New York City)",
+      },
+    ],
+  };
+
+  it("keeps a historical painting even when a museum category says modern", () => {
+    expect(isArtWikiPage(starryNight)).toBe(true);
+  });
+
+  it("rejects a modern style in the title or description", () => {
+    expect(
+      isArtWikiPage({
+        ...starryNight,
+        title: "Cubist Study",
+        description: "1889 cubism painting by an artist",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects biographies that appear in artist searches", () => {
+    expect(
+      isArtWikiPage({
+        ...starryNight,
+        title: "Theo van Gogh (art dealer)",
+        description: "Dutch art dealer (1857-1891)",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects photographs and works made after 1900", () => {
+    expect(
+      isArtWikiPage({
+        ...starryNight,
+        title: "A Studio Portrait",
+        description: "1880 photograph by an artist",
+      }),
+    ).toBe(false);
+    expect(
+      isArtWikiPage({
+        ...starryNight,
+        title: "A Later Painting",
+        description: "1910 painting by an artist",
+      }),
+    ).toBe(false);
   });
 });
 
