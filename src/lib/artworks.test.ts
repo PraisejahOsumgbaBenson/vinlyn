@@ -5,6 +5,8 @@ import {
   isBlockedSearchQuery,
   isCacheFresh,
   mergeCoverBatches,
+  MOVEMENT_RESULT_LIMIT,
+  movementArtworkSearchParams,
   type AlbumCover,
 } from "./artworks";
 
@@ -88,6 +90,30 @@ describe("historicalArtworkSearchParams", () => {
     const params = historicalArtworkSearchParams("painting", false);
     expect(params).toContain("subject_titles%5D=nudes");
     expect(params).toContain("artwork_type_title%5D=photograph");
+  });
+});
+
+describe("movement artwork loading", () => {
+  it("builds a scoped Renaissance query from related historical styles", () => {
+    const params = movementArtworkSearchParams("renaissance");
+
+    expect(params).toContain("style_title%5D=Renaissance");
+    expect(params).toContain("style_title%5D=Mannerism");
+    expect(params).toContain("date_end%5D%5Blte%5D=1900");
+    expect(params).toContain("exists%5D%5Bfield%5D=image_id");
+    expect(params).not.toContain("q=renaissance");
+  });
+
+  it("builds a wider Baroque query from related historical styles", () => {
+    const params = movementArtworkSearchParams("baroque");
+
+    expect(params).toContain("style_title%5D=Baroque");
+    expect(params).toContain("style_title%5D=17th%20Century");
+    expect(params).toContain("style_title%5D=Rococo");
+  });
+
+  it("loads a deep movement collection instead of a small sample", () => {
+    expect(MOVEMENT_RESULT_LIMIT).toBeGreaterThanOrEqual(200);
   });
 });
 

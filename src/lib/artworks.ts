@@ -123,9 +123,12 @@ const iiifBase = useLocalProxy
   ? "/aic-iiif/iiif/2"
   : "https://www.artic.edu/iiif/2";
 const detailCache = new Map<string, SpotifyAlbumDetail>();
-const AIC_SAFE_LIMIT = 20;
+// The museum API allows at most 100 records in one page. One large page is
+// faster and kinder to the API than several small pages.
+const AIC_PAGE_LIMIT = 100;
 const MAX_COLLECTION_RESULTS = 60;
 const MAX_SEARCH_RESULTS = 80;
+export const MOVEMENT_RESULT_LIMIT = 200;
 const WIKI_SEARCH_LIMIT = 24;
 const WIKI_ID_PREFIX = "wiki:";
 const REQUEST_TIMEOUT_MS = 9000;
@@ -148,7 +151,18 @@ const ART_MOVEMENTS: SpotifyPlaylist[] = [
   { id: "baroque", name: "Baroque", imageUrl: "", tracksTotal: 0 },
 ];
 
-const movementTotalCache = new Map<string, number>();
+// Related style labels keep a movement deep enough to browse. The museum uses
+// several period labels for work that belongs to the same movement.
+const MOVEMENT_STYLE_TERMS: Record<string, string[]> = {
+  impressionism: [
+    "Impressionism",
+    "Post-Impressionism",
+    "Pointillism",
+    "Neo-Impressionism",
+  ],
+  renaissance: ["Renaissance", "Mannerism", "15th Century", "16th Century"],
+  baroque: ["Baroque", "17th Century", "Rococo"],
+};
 
 function imageUrlFromId(imageId?: string): string {
   if (!imageId) return "";
@@ -326,6 +340,24 @@ function requestParam(key: string, value: string | number): string {
   return `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`;
 }
 
+function historicalFilterParams(): string[] {
+  const parts = [
+    requestParam(
+      "query[bool][filter][][range][date_end][lte]",
+      HISTORICAL_CUTOFF_YEAR,
+    ),
+    requestParam("query[bool][must][][exists][field]", "image_id"),
+  ];
+
+  for (const term of BLOCKED_SUBJECT_TERMS) {
+    parts.push(requestParam("query[bool][must_not][][match][subject_titles]", term));
+  }
+  parts.push(requestParam("query[bool][must_not][][match][artwork_type_title]", "photograph"));
+  parts.push(requestParam("query[bool][must_not][][match][classification_title]", "photograph"));
+
+  return parts;
+}
+
 // Apply the historical rules in the API query as well as in the mapper. That
 // keeps a filtered search from walking every page of the collection before it
 // finds enough allowed artworks.
@@ -349,16 +381,19 @@ export function historicalArtworkSearchParams(
     parts.push(requestParam("q", query));
   }
 
-  parts.push(
-    requestParam("query[bool][filter][][range][date_end][lte]", HISTORICAL_CUTOFF_YEAR),
-  );
-  for (const term of BLOCKED_SUBJECT_TERMS) {
-    parts.push(requestParam("query[bool][must_not][][match][subject_titles]", term));
-  }
-  parts.push(requestParam("query[bool][must_not][][match][artwork_type_title]", "photograph"));
-  parts.push(requestParam("query[bool][must_not][][match][classification_title]", "photograph"));
+  return [...parts, ...historicalFilterParams()].join("&");
+}
 
-  return parts.join("&");
+// A movement needs a real filter on style, not just `q`, because `q` boosts
+// results but does not narrow `pagination.total` for this API.
+export function movementArtworkSearchParams(movementId: string): string {
+  const terms = MOVEMENT_STYLE_TERMS[movementId] ?? [movementId];
+  const parts = terms.map((term) =>
+    requestParam("query[bool][should][][match_phrase][style_title]", term),
+  );
+  parts.push(requestParam("query[bool][minimum_should_match]", 1));
+
+  return [...parts, ...historicalFilterParams()].join("&");
 }
 
 function compactArtTitle(text: string): string {
@@ -389,30 +424,17 @@ function pageNumbers(maxPages: number): number[] {
   return Array.from({ length: count }, (_, index) => index + 1);
 }
 
-async function fetchSearchTotal(query: string): Promise<number> {
-  const cached = movementTotalCache.get(query);
-  if (typeof cached === "number") return cached;
-  const data = await fetchJson<AicResponse>(
-    `${apiBase}/artworks/search?${historicalArtworkSearchParams(query, false)}&limit=1&fields=id`,
-  );
-  const total = Math.max(0, Number(data.pagination?.total ?? 0));
-  movementTotalCache.set(query, total);
-  return total;
-}
-
 type SearchPage = {
   covers: AlbumCover[];
   totalPages: number;
 };
 
 async function fetchSearchPage(
-  query: string,
+  searchParams: string,
   page: number,
-  scoped: boolean,
 ): Promise<SearchPage> {
-  const searchParams = historicalArtworkSearchParams(query, scoped);
   const data = await fetchJson<AicResponse>(
-    `${apiBase}/artworks/search?${searchParams}&limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
+    `${apiBase}/artworks/search?${searchParams}&limit=${AIC_PAGE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
   );
   return {
     covers: (data.data ?? [])
@@ -426,9 +448,10 @@ async function fetchAllSearchCovers(
   query: string,
   maxResults = MAX_SEARCH_RESULTS,
   scoped = false,
+  searchParams = historicalArtworkSearchParams(query, scoped),
 ): Promise<AlbumCover[]> {
-  const maxPages = Math.ceil(maxResults / AIC_SAFE_LIMIT);
-  const first = await fetchSearchPage(query, 1, scoped);
+  const maxPages = Math.ceil(maxResults / AIC_PAGE_LIMIT);
+  const first = await fetchSearchPage(searchParams, 1);
   const remainingPages = pageNumbers(maxPages).filter(
     (page) => page > 1 && page <= first.totalPages,
   );
@@ -436,7 +459,7 @@ async function fetchAllSearchCovers(
   // Remaining pages are independent. Running them together keeps one slow
   // museum page from adding its full latency to every search.
   const remaining = await Promise.allSettled(
-    remainingPages.map((page) => fetchSearchPage(query, page, scoped)),
+    remainingPages.map((page) => fetchSearchPage(searchParams, page)),
   );
   const batches: PromiseSettledResult<AlbumCover[]>[] = [
     { status: "fulfilled", value: first.covers },
@@ -452,7 +475,7 @@ async function fetchAllSearchCovers(
 
 async function fetchFeaturedPage(page: number): Promise<AlbumCover[]> {
   const data = await fetchJson<AicResponse>(
-    `${apiBase}/artworks?limit=${AIC_SAFE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
+    `${apiBase}/artworks?limit=${AIC_PAGE_LIMIT}&page=${page}&fields=${encodeURIComponent(fieldsList())}`,
   );
   return (data.data ?? [])
     .map(artworkToCover)
@@ -462,7 +485,7 @@ async function fetchFeaturedPage(page: number): Promise<AlbumCover[]> {
 async function fetchAllFeaturedCovers(
   maxResults = MAX_COLLECTION_RESULTS,
 ): Promise<AlbumCover[]> {
-  const maxPages = Math.ceil(maxResults / AIC_SAFE_LIMIT);
+  const maxPages = Math.ceil(maxResults / AIC_PAGE_LIMIT);
   const batches = await Promise.allSettled(
     pageNumbers(maxPages).map((page) => fetchFeaturedPage(page)),
   );
@@ -541,6 +564,30 @@ async function fetchCombinedSearchCovers(
   }
 
   const covers = dedupeCovers([...artworkResults, ...wiki]).slice(0, maxResults);
+  if (covers.length) {
+    searchCache.set(cacheKey, { version: 1, covers, savedAt: Date.now() });
+  }
+  return covers;
+}
+
+async function fetchMovementCovers(movementId: string): Promise<AlbumCover[]> {
+  const cacheKey = `movement:${movementId}:${MOVEMENT_RESULT_LIMIT}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && isCacheFresh(cached.savedAt, Date.now(), SEARCH_CACHE_TTL)) {
+    return cached.covers;
+  }
+
+  const [aic, wiki] = await Promise.all([
+    fetchAllSearchCovers(
+      movementId,
+      MOVEMENT_RESULT_LIMIT - WIKI_SEARCH_LIMIT,
+      false,
+      movementArtworkSearchParams(movementId),
+    ),
+    fetchWikiSearchCovers(movementId, WIKI_SEARCH_LIMIT).catch(() => []),
+  ]);
+
+  const covers = dedupeCovers([...aic, ...wiki]).slice(0, MOVEMENT_RESULT_LIMIT);
   if (covers.length) {
     searchCache.set(cacheKey, { version: 1, covers, savedAt: Date.now() });
   }
@@ -672,20 +719,18 @@ export async function fetchUserPlaylists(
   _token: string,
 ): Promise<SpotifyPlaylist[]> {
   void _token;
-  const totals = await Promise.all(
+  const playlists = await Promise.all(
     ART_MOVEMENTS.map(async (movement) => {
       try {
-        return await fetchSearchTotal(movement.id);
+        const covers = await fetchMovementCovers(movement.id);
+        return { ...movement, tracksTotal: covers.length };
       } catch {
-        return movement.tracksTotal;
+        return movement;
       }
     }),
   );
 
-  return ART_MOVEMENTS.map((movement, i) => ({
-    ...movement,
-    tracksTotal: totals[i] ?? movement.tracksTotal,
-  }));
+  return playlists;
 }
 
 export async function fetchPlaylistAlbumCovers(
@@ -693,8 +738,7 @@ export async function fetchPlaylistAlbumCovers(
   playlistId: string,
 ): Promise<AlbumCover[]> {
   void _token;
-  const query = playlistId || "painting";
-  return fetchCombinedSearchCovers(query);
+  return fetchMovementCovers(playlistId || "painting");
 }
 
 export async function searchArtworkCovers(
