@@ -254,7 +254,7 @@ function firstSentence(text: string): string {
 const ART_PAGE_PATTERN =
   /\b(paintings?|drawings?|sculptures?|photographs?|prints?|frescoes?|mosaics?|ceramics?|pottery|textiles?|tapestries?|miniatures?|manuscripts?|engravings?|etchings?|lithographs?|woodcuts?|artworks?|works of art|portraits?|museums?|art galleries|architecture|cathedrals?|temples?|statues?|busts?|reliefs?|art movements?|visual arts?|installations?|collages?)\b/i;
 const PERSON_CATEGORY_PATTERN =
-  /\b(actresses?|actors?|films?|television|tv series|singers?|musicians?|music|musical groups?|bands?|living people|sports?|players?|politicians?|journalists?|models?|dancers?|painters?|printmakers?|engravers?|sculptors?|photographers?|architects?|illustrators?|designers?|writers?|authors?|poets?|composers?|rugby|football|cricket|novels?|songs?|albums?|newspapers?|episodes|comics?|video games?|software|companies|organizations|occupations?)\b/i;
+  /\b(actresses?|actors?|films?|television|tv series|singers?|musicians?|music|musical groups?|bands?|living people|sports?|players?|politicians?|journalists?|models?|dancers?|painters?|printmakers?|engravers?|sculptors?|photographers?|architects?|illustrators?|designers?|writers?|authors?|poets?|composers?|art dealers?|dealers?|tailors?|prostitutes?|rugby|football|cricket|novels?|songs?|albums?|newspapers?|episodes|comics?|video games?|software|companies|organizations|occupations?)\b/i;
 const PERSON_DESCRIPTION_PATTERN = new RegExp(
   `${PERSON_CATEGORY_PATTERN.source}|\\bartists?\\b|\\bbiography\\b`,
   "i",
@@ -265,7 +265,12 @@ const PERSON_DESCRIPTION_PATTERN = new RegExp(
 const HISTORICAL_CUTOFF_YEAR = 1900;
 const BLOCKED_SUBJECT_TERMS = ["nudes", "naked", "bather", "bathing", "torso", "erotic"];
 const MODERN_STYLE_PATTERN =
-  /\b(pop art|modern|contemporary|abstract|surrealism|cubism|futurism|expressionism|bauhaus|art deco|minimalism|conceptual|performance art|digital)\b/i;
+  /\b(pop art|modern|contemporary|abstract|surrealism|surrealist|cubism|cubist|futurism|expressionism|expressionist|bauhaus|art deco|minimalism|conceptual|performance art|digital)\b/i;
+// Museums named "Museum of Modern Art" hold plenty of nineteenth century work.
+// The venue name must not be mistaken for the style of the artwork itself.
+const MODERN_INSTITUTION_PATTERN =
+  /\b(museum of modern art|museum of contemporary art|modern art museum|contemporary art museum|moma)\b/i;
+const WIKI_YEAR_PATTERN = /\b(1[0-9]{3}|20[0-9]{2})\b/;
 const PHOTOGRAPH_PATTERN =
   /\b(photograph|photography|photo|daguerreotype|gelatin silver|cyanotype)\b/i;
 const SEXUAL_CONTENT_PATTERN =
@@ -297,19 +302,26 @@ export function isAllowedArtwork(art: AicArtwork): boolean {
   return !SEXUAL_CONTENT_PATTERN.test(description);
 }
 
-function isArtWikiPage(page: WikiPage): boolean {
+export function isArtWikiPage(page: WikiPage): boolean {
   const description = page.description || "";
   const categories = (page.categories || []).map((entry) => entry.title);
-  const pageText = `${page.title} ${description} ${categories.join(" ")}`;
+  const categoryText = categories.join(" ");
+  const styleText = `${page.title} ${description}`.replace(
+    MODERN_INSTITUTION_PATTERN,
+    " ",
+  );
   const isArt =
     categories.some((category) => ART_PAGE_PATTERN.test(category)) ||
     ART_PAGE_PATTERN.test(description);
   const isPerson =
     categories.some((category) => PERSON_CATEGORY_PATTERN.test(category)) ||
     PERSON_DESCRIPTION_PATTERN.test(description);
+  const year = Number(styleText.match(WIKI_YEAR_PATTERN)?.[1] ?? 0);
+  const isOutOfPeriod = year > HISTORICAL_CUTOFF_YEAR;
   const isModern =
-    MODERN_STYLE_PATTERN.test(pageText) || PHOTOGRAPH_PATTERN.test(pageText);
-  return isArt && !isPerson && !isModern;
+    MODERN_STYLE_PATTERN.test(styleText) ||
+    PHOTOGRAPH_PATTERN.test(`${styleText} ${categoryText}`);
+  return isArt && !isPerson && !isModern && !isOutOfPeriod;
 }
 
 // User-entered queries must match artwork fields. The plain `q` parameter
