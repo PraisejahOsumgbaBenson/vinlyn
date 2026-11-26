@@ -7,6 +7,11 @@
   --polka-dot-pattern: none;
   --polka-dot-size: 800px 800px, 800px 800px;
   --display-font: Georgia, "Times New Roman", serif;
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --chrome-inset: clamp(16px, 3vw, 48px);
 
   font-family:
     system-ui,

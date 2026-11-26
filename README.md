@@ -22,7 +22,7 @@ An interactive, gesture-driven digital art gallery that transforms how you brows
 - **Historical Collection** (The gallery shows paintings, prints, and sculptures made by 1900. Photographs, modern styles, and works that depict nudity are left out.)
 - **Reliable Images** (Artwork images use a size that fits each source, stepping down to smaller sizes when a source image is too small.)
 - **Fast Loading** (Artwork pages load in parallel, requests time out instead of hanging, and a local cache keeps the gallery ready on return visits. Only the first eight drag cards load images eagerly.)
-- **Responsive Design** — Adaptive card sizing and layout for desktop and mobile viewports
+- **Responsive Design**: adaptive card sizing, roomier grid and detail layouts, and breakpoints for phones, tablets, short viewports, and desktops
 - **Offline-Ready Static Assets** — MediaPipe vision runtime bundled locally for reliable gesture detection
 
 ## Tech Stack
