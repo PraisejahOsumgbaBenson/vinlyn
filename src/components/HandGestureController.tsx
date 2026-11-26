@@ -12,9 +12,14 @@ import {
   type GestureSample,
 } from "../lib/gestureMath";
 import type {
+  GestureLandmark,
   GestureWorkerRequest,
   GestureWorkerResponse,
 } from "../lib/gestureMessages";
+import {
+  drawGestureOverlay,
+  gestureOverlayStatus,
+} from "../lib/gestureOverlay";
 
 type HandGestureControllerProps = {
   enabled: boolean;
@@ -40,6 +45,8 @@ export function HandGestureController({
   onStateChange,
 }: HandGestureControllerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
+  const statusRef = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
     if (!enabled) {
@@ -58,6 +65,10 @@ export function HandGestureController({
     let lastVideoTime = -1;
     let lastTimestamp = 0;
     let tracker = createGestureTracker();
+    let sampleCount = 0;
+    let fpsWindowStart = performance.now();
+    let trackingFps = 0;
+    let lastStatusAt = 0;
 
     const stopLoops = () => {
       if (rafId !== null) {
@@ -74,6 +85,10 @@ export function HandGestureController({
     const cleanup = () => {
       disposed = true;
       stopLoops();
+      drawGestureOverlay(overlayRef.current, null, null);
+      if (statusRef.current) {
+        statusRef.current.textContent = "HAND NOT FOUND · SHOW YOUR HAND TO THE CAMERA";
+      }
       videoEl = null;
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
@@ -147,13 +162,33 @@ export function HandGestureController({
       }
     };
 
-    const applySample = (sample: GestureSample | null) => {
+    const applySample = (
+      sample: GestureSample | null,
+      landmarks: GestureLandmark[] | null,
+    ) => {
       const now =
         typeof performance !== "undefined" ? performance.now() : Date.now();
       const step = stepGesture(tracker, sample, now);
       tracker = step.tracker;
       if (step.deltaPx !== 0) publishGestureScroll(step.deltaPx);
       if (step.select) onSelect();
+
+      sampleCount += 1;
+      if (now - fpsWindowStart >= 1000) {
+        trackingFps = Math.round((sampleCount * 1000) / (now - fpsWindowStart));
+        sampleCount = 0;
+        fpsWindowStart = now;
+      }
+
+      drawGestureOverlay(overlayRef.current, landmarks, sample);
+      if (now - lastStatusAt >= 250 && statusRef.current) {
+        lastStatusAt = now;
+        statusRef.current.textContent = gestureOverlayStatus(
+          sample,
+          landmarks,
+          trackingFps,
+        );
+      }
     };
 
     void (async () => {
@@ -175,7 +210,7 @@ export function HandGestureController({
           }
 
           if (message.type === "sample") {
-            applySample(message.sample);
+            applySample(message.sample, message.landmarks);
             return;
           }
 
@@ -244,13 +279,24 @@ export function HandGestureController({
 
   return (
     <div className="gesture-preview" aria-live="polite">
-      <video
-        ref={videoRef}
-        className="gesture-preview__video"
-        muted
-        playsInline
-      />
-      <span className="gesture-preview__label">Hand Control On</span>
+      <div className="gesture-preview__frame">
+        <video
+          ref={videoRef}
+          className="gesture-preview__video"
+          muted
+          playsInline
+        />
+        <canvas
+          ref={overlayRef}
+          className="gesture-preview__map"
+          width={640}
+          height={360}
+          aria-hidden="true"
+        />
+      </div>
+      <span ref={statusRef} className="gesture-preview__label">
+        HAND NOT FOUND · SHOW YOUR HAND TO THE CAMERA
+      </span>
     </div>
   );
 }

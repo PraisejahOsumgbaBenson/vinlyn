@@ -119,8 +119,12 @@ self.onmessage = (event) => {
 
   try {
     const result = landmarker.detectForVideo(message.frame, message.timestamp);
-    const hand = result?.landmarks?.[0];
-    post({ type: "sample", sample: hand ? sampleFromHand(hand) : null });
+    const hand = result?.landmarks?.[0] ?? null;
+    post({
+      type: "sample",
+      sample: hand ? sampleFromHand(hand) : null,
+      landmarks: hand,
+    });
   } catch (error) {
     post({
       type: "error",
