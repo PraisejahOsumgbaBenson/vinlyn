@@ -6,6 +6,10 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  createGestureSelectGate,
+  subscribeGestureScroll,
+} from "../lib/gestureEvents";
 import { IMAGE_FALLBACK, nextImageSize, type AlbumCover } from "../lib";
 import { UiSfx } from "../lib/sfx";
 import "./AlbumRibbon.css";
@@ -13,7 +17,7 @@ import "./AlbumRibbon.css";
 type Props = {
   albums: AlbumCover[];
   onSelectAlbum?: (album: AlbumCover) => void;
-  gestureScroll?: { seq: number; delta: number };
+  gestureEnabled?: boolean;
   gestureSelectSeq?: number;
 };
 
@@ -188,7 +192,7 @@ const FannedCard = memo(function FannedCard({
 export function AlbumRibbon({
   albums,
   onSelectAlbum,
-  gestureScroll,
+  gestureEnabled,
   gestureSelectSeq,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -222,8 +226,7 @@ export function AlbumRibbon({
   const lastHoverSoundAtRef = useRef(0);
   const lastGestureSoundAtRef = useRef(0);
   const lastTouchDragSoundAtRef = useRef(0);
-  const lastGestureScrollSeqRef = useRef<number>(-1);
-  const lastGestureSelectSeqRef = useRef<number>(-1);
+  const gestureSelectGateRef = useRef(createGestureSelectGate());
   const clickCancelDistanceRef = useRef(CLICK_CANCEL_DISTANCE_PX);
   const dragPointerTypeRef = useRef<string | null>(null);
   const smoothedTouchDyRef = useRef(0);
@@ -550,31 +553,29 @@ export function AlbumRibbon({
   }, [selectFrontAlbum]);
 
   useEffect(() => {
-    if (!gestureScroll) return;
-    if (gestureScroll.seq === lastGestureScrollSeqRef.current) return;
-    lastGestureScrollSeqRef.current = gestureScroll.seq;
+    if (!gestureEnabled) return;
 
-    const deltaPx = gestureScroll.delta;
-    if (!Number.isFinite(deltaPx) || Math.abs(deltaPx) < 0.1) return;
+    return subscribeGestureScroll((deltaPx) => {
+      if (!Number.isFinite(deltaPx) || Math.abs(deltaPx) < 0.1) return;
 
-    const now = performance.now();
-    const speed = Math.min(1, Math.abs(deltaPx) / 24);
-    if (now - lastGestureSoundAtRef.current > 38) {
-      resumeSfx();
-      getSfx().playDragScrub(speed);
-      lastGestureSoundAtRef.current = now;
-    }
+      const now = performance.now();
+      const speed = Math.min(1, Math.abs(deltaPx) / 24);
+      if (now - lastGestureSoundAtRef.current > 38) {
+        resumeSfx();
+        getSfx().playDragScrub(speed);
+        lastGestureSoundAtRef.current = now;
+      }
 
-    targetOffsetRef.current += -deltaPx * DRAG_GAIN;
-    ensureAnimation();
-  }, [ensureAnimation, getSfx, gestureScroll, resumeSfx]);
+      targetOffsetRef.current += -deltaPx * DRAG_GAIN;
+      ensureAnimation();
+    });
+  }, [ensureAnimation, gestureEnabled, getSfx, resumeSfx]);
 
   useEffect(() => {
-    if (typeof gestureSelectSeq !== "number") return;
-    if (gestureSelectSeq === lastGestureSelectSeqRef.current) return;
-    lastGestureSelectSeqRef.current = gestureSelectSeq;
-    selectFrontAlbumRef.current();
-  }, [gestureSelectSeq, scrollOffset]);
+    if (gestureSelectGateRef.current.observe(gestureSelectSeq)) {
+      selectFrontAlbumRef.current();
+    }
+  }, [gestureSelectSeq]);
 
   if (albums.length === 0) {
     return <div className="ribbon-empty">No albums to show yet.</div>;

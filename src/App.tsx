@@ -27,6 +27,7 @@ import {
   type SpotifyAlbumDetail,
   type SpotifyPlaylist,
 } from "./lib";
+import { subscribeGestureScroll } from "./lib/gestureEvents";
 import { UiSfx } from "./lib/sfx";
 import "./App.css";
 
@@ -320,7 +321,6 @@ export default function App() {
   );
   const [gestureEnabled, setGestureEnabled] = useState(false);
   const [gestureStatus, setGestureStatus] = useState<string | null>(null);
-  const [gestureScroll, setGestureScroll] = useState({ seq: 0, delta: 0 });
   const [gestureSelectSeq, setGestureSelectSeq] = useState(0);
   const [imagePalette, setImagePalette] = useState<PaletteColor[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() =>
@@ -341,6 +341,7 @@ export default function App() {
   });
   const [galleryCollectionId, setGalleryCollectionId] = useState("");
   const [similarArtworks, setSimilarArtworks] = useState<AlbumCover[]>([]);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const sfxRef = useRef<UiSfx | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchRequestIdRef = useRef(0);
@@ -785,10 +786,6 @@ export default function App() {
     });
   };
 
-  const onGestureScroll = useCallback((deltaY: number) => {
-    setGestureScroll((prev) => ({ seq: prev.seq + 1, delta: deltaY }));
-  }, []);
-
   const onGestureSelect = useCallback(() => {
     setGestureSelectSeq((prev) => prev + 1);
   }, []);
@@ -808,6 +805,12 @@ export default function App() {
     },
     [],
   );
+
+  const gesturesActive =
+    gestureEnabled &&
+    !isArtworkPage &&
+    connected &&
+    (layoutMode === "drag" || layoutMode === "grid");
 
   const toggleFavorite = () => {
     const artworkId = activeAlbumDetail?.id || activeAlbum?.id;
@@ -1117,6 +1120,22 @@ export default function App() {
     connected &&
     (albums.length > 0 || hasSearchQuery || galleryScope !== "all") &&
     visibleAlbums.length === 0;
+
+  useEffect(() => {
+    if (!gesturesActive || layoutMode !== "grid" || !showLibrary) return;
+
+    return subscribeGestureScroll((deltaPx) => {
+      if (!Number.isFinite(deltaPx) || Math.abs(deltaPx) < 0.1) return;
+
+      const shell = shellRef.current;
+      const scroller =
+        shell && shell.scrollHeight > shell.clientHeight + 1
+          ? shell
+          : (document.scrollingElement as HTMLElement | null) ??
+            document.documentElement;
+      scroller.scrollBy({ top: deltaPx * 2, behavior: "auto" });
+    });
+  }, [gesturesActive, layoutMode, showLibrary]);
   const emptyState = (() => {
     if (blockedSearch && hasSearchQuery) {
       return {
@@ -1213,6 +1232,7 @@ export default function App() {
 
   return (
     <div
+      ref={shellRef}
       className={`shell${layoutMode === "grid" && !isArtworkPage ? " shell--grid" : ""}`}
     >
       {!isArtworkPage && (
@@ -1436,13 +1456,8 @@ export default function App() {
               type="button"
               className="unveil-filter"
               onClick={onToggleGestures}
-              disabled={
-                !nicknameDone ||
-                !connected ||
-                isArtworkPage ||
-                layoutMode !== "drag"
-              }
-              title="Allow camera hand gestures for drag view"
+              disabled={!nicknameDone || !connected || isArtworkPage}
+              title="Allow camera hand gestures in drag and grid views"
             >
               GESTURE <sup>{gestureEnabled ? "ON" : "OFF"}</sup>
             </button>
@@ -2019,8 +2034,8 @@ export default function App() {
           <AlbumRibbon
             albums={visibleAlbums}
             onSelectAlbum={onSelectAlbum}
-            gestureScroll={gestureEnabled ? gestureScroll : undefined}
-            gestureSelectSeq={gestureEnabled ? gestureSelectSeq : undefined}
+            gestureEnabled={gesturesActive}
+            gestureSelectSeq={gesturesActive ? gestureSelectSeq : undefined}
           />
         ) : (
           <main className="art-grid-wrap" aria-label="Artwork grid view">
@@ -2075,10 +2090,7 @@ export default function App() {
       )}
 
       <HandGestureController
-        enabled={
-          gestureEnabled && !isArtworkPage && connected && layoutMode === "drag"
-        }
-        onScroll={onGestureScroll}
+        enabled={gesturesActive}
         onSelect={onGestureSelect}
         onStateChange={onGestureStateChange}
       />
