@@ -186,6 +186,15 @@
   flex-direction: column;
   align-items: flex-end;
   gap: var(--space-2);
+  max-width: calc(100vw - (var(--chrome-inset) * 2));
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(8, 12, 20, 0.08);
+  pointer-events: auto;
   animation: riseIn 620ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -229,6 +238,7 @@
 .unveil-collection-select {
   pointer-events: auto;
   width: min(15rem, calc(100vw - 40px));
+  max-width: 100%;
   height: 34px;
   border-radius: 0;
   border: none;
@@ -244,6 +254,7 @@
 .unveil-collection-manage {
   pointer-events: auto;
   width: min(18rem, calc(100vw - 40px));
+  max-width: 100%;
   display: grid;
   gap: 6px;
   padding: 8px;
@@ -346,6 +357,7 @@
 .unveil-favorites-panel {
   pointer-events: auto;
   width: min(20rem, calc(100vw - 40px));
+  max-width: 100%;
   max-height: min(36vh, 320px);
   overflow: auto;
   display: grid;
@@ -1497,7 +1509,7 @@
     max-height: calc(100svh - 24px);
     overflow-y: auto;
     pointer-events: auto;
-    padding-right: 2px;
+    padding-right: var(--space-3);
   }
 
   .unveil-filter {
