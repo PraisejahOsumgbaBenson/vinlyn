@@ -110,11 +110,13 @@ src/
 │   ├── index.ts                   # Public API exports
 │   ├── artworks.ts                # Art Institute of Chicago + Wikipedia API integration
 │   ├── artworks.test.ts           # Tests for historical and blocked-search rules
-│   ├── gestureEvents.ts           # Gesture scroll event bridge to drag and grid views
+│   ├── gestureEvents.ts           # Gesture scroll bridge and selection sequence gate
+│   ├── gestureEvents.test.ts      # Tests for gesture enable and pinch sequencing
 │   ├── gestureMath.ts             # Smoothing, deadband, delta clamp, and pinch hysteresis
 │   ├── gestureMath.test.ts        # Tests for gesture signal handling
 │   ├── gestureMessages.ts         # Worker message and landmark types
 │   ├── gestureOverlay.ts          # Camera preview hand map and tracking status text
+│   ├── gestureOverlay.test.ts     # Tests for hand map status text
 │   └── sfx.ts                     # Procedural UI sound synthesis via Web Audio API
 └── main.tsx                       # Application entry point
 ```
@@ -129,7 +131,7 @@ The `AlbumRibbon` component renders a virtualized 3D card stack using CSS `trans
 
 ### Gesture Pipeline
 
-`HandGestureController` watches the camera for new frames, then hands each frame to a classic web worker. The worker loads the locally bundled MediaPipe runtime with `importScripts`, starts `HandLandmarker` with GPU inference and a CPU fallback, and sends back one landmark sample per frame. `gestureOverlay.ts` draws those landmarks on the camera preview with a finger guide line, pinch indicator, and tracking status. `gestureMath.ts` smooths the index finger position, ignores small jitter, clamps large steps, and uses a hand-relative pinch ratio with release hysteresis and a 500ms selection debounce. Scroll deltas travel through a small event bridge. Drag view applies them directly to `AlbumRibbon` without re-rendering the app shell, and grid view scrolls the document.
+`HandGestureController` watches the camera for new frames, then hands each frame to a classic web worker. The worker loads the locally bundled MediaPipe runtime with `importScripts`, starts `HandLandmarker` with GPU inference and a CPU fallback, and sends back one landmark sample per frame. `gestureOverlay.ts` draws those landmarks on the camera preview with a finger guide line, pinch indicator, and tracking status. `gestureMath.ts` smooths the index finger position, ignores small jitter, clamps large steps, and uses a hand-relative pinch ratio with release hysteresis and a 500ms selection debounce. The ribbon ignores the first selection value it receives, so enabling gestures never opens the front artwork by mistake. Scroll deltas travel through a small event bridge. Drag view applies them directly to `AlbumRibbon` without re-rendering the app shell, and grid view scrolls the document.
 
 ### API Layer
 

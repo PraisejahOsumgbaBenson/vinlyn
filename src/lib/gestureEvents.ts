@@ -17,3 +17,22 @@ export function subscribeGestureScroll(
   window.addEventListener(SCROLL_EVENT, handler);
   return () => window.removeEventListener(SCROLL_EVENT, handler);
 }
+
+export function createGestureSelectGate() {
+  let last: number | null = null;
+
+  return {
+    observe(value: number | undefined): boolean {
+      if (typeof value !== "number") {
+        last = null;
+        return false;
+      }
+      if (last === null || value === last) {
+        last = value;
+        return false;
+      }
+      last = value;
+      return true;
+    },
+  };
+}

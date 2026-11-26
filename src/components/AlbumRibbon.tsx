@@ -6,7 +6,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { subscribeGestureScroll } from "../lib/gestureEvents";
+import {
+  createGestureSelectGate,
+  subscribeGestureScroll,
+} from "../lib/gestureEvents";
 import { IMAGE_FALLBACK, nextImageSize, type AlbumCover } from "../lib";
 import { UiSfx } from "../lib/sfx";
 import "./AlbumRibbon.css";
@@ -223,7 +226,7 @@ export function AlbumRibbon({
   const lastHoverSoundAtRef = useRef(0);
   const lastGestureSoundAtRef = useRef(0);
   const lastTouchDragSoundAtRef = useRef(0);
-  const lastGestureSelectSeqRef = useRef<number>(-1);
+  const gestureSelectGateRef = useRef(createGestureSelectGate());
   const clickCancelDistanceRef = useRef(CLICK_CANCEL_DISTANCE_PX);
   const dragPointerTypeRef = useRef<string | null>(null);
   const smoothedTouchDyRef = useRef(0);
@@ -569,10 +572,9 @@ export function AlbumRibbon({
   }, [ensureAnimation, gestureEnabled, getSfx, resumeSfx]);
 
   useEffect(() => {
-    if (typeof gestureSelectSeq !== "number") return;
-    if (gestureSelectSeq === lastGestureSelectSeqRef.current) return;
-    lastGestureSelectSeqRef.current = gestureSelectSeq;
-    selectFrontAlbumRef.current();
+    if (gestureSelectGateRef.current.observe(gestureSelectSeq)) {
+      selectFrontAlbumRef.current();
+    }
   }, [gestureSelectSeq]);
 
   if (albums.length === 0) {

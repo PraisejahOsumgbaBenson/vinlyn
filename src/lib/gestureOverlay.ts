@@ -1,5 +1,5 @@
 import type { GestureLandmark } from "./gestureMessages";
-import type { GestureSample } from "./gestureMath";
+import { PINCH_ON_RATIO, type GestureSample } from "./gestureMath";
 
 type Point = { x: number; y: number };
 
@@ -89,7 +89,7 @@ export function drawGestureOverlay(
   const thumb = landmarks[4];
   const index = landmarks[8];
   if (sample && thumb && index && sample.span > 0.001) {
-    const pinching = sample.pinchDistance / sample.span < 0.45;
+    const pinching = sample.pinchDistance / sample.span < PINCH_ON_RATIO;
     const a = pixelPoint(thumb, width, height);
     const b = pixelPoint(index, width, height);
     ctx.strokeStyle = pinching
@@ -149,6 +149,9 @@ export function gestureOverlayStatus(
   }
 
   const pinchRatio = sample.pinchDistance / sample.span;
-  const action = pinchRatio < 0.45 ? "PINCHING · RELEASE TO SELECT AGAIN" : "MOVE FINGER UP OR DOWN";
+  const action =
+    pinchRatio < PINCH_ON_RATIO
+      ? "PINCHING · RELEASE TO SELECT AGAIN"
+      : "MOVE FINGER UP OR DOWN";
   return `HAND FOUND · ${action} · ${fps > 0 ? `${fps} FPS` : "TRACKING"}`;
 }

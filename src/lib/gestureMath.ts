@@ -20,8 +20,8 @@ const SCROLL_GAIN = 1400;
 const SMOOTHING_FACTOR = 0.35;
 const SCROLL_DEADBAND_PX = 3;
 const MAX_SCROLL_STEP_PX = 28;
-const PINCH_ON_RATIO = 0.35;
-const PINCH_OFF_RATIO = 0.45;
+export const PINCH_ON_RATIO = 0.35;
+export const PINCH_OFF_RATIO = 0.45;
 const SELECT_DEBOUNCE_MS = 500;
 
 export function createGestureTracker(): GestureTracker {
