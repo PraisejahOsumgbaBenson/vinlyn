@@ -7,6 +7,7 @@ export type GestureSample = {
 export type GestureTracker = {
   smoothedY: number | null;
   pinchDown: boolean;
+  pinchArmed: boolean;
   lastSelectAt: number;
 };
 
@@ -25,7 +26,12 @@ export const PINCH_OFF_RATIO = 0.45;
 const SELECT_DEBOUNCE_MS = 500;
 
 export function createGestureTracker(): GestureTracker {
-  return { smoothedY: null, pinchDown: false, lastSelectAt: Number.NEGATIVE_INFINITY };
+  return {
+    smoothedY: null,
+    pinchDown: false,
+    pinchArmed: false,
+    lastSelectAt: Number.NEGATIVE_INFINITY,
+  };
 }
 
 function clamp(value: number, limit: number): number {
@@ -45,7 +51,12 @@ export function stepGesture(
     sample.span <= 0.001
   ) {
     return {
-      tracker: { ...tracker, smoothedY: null, pinchDown: false },
+      tracker: {
+        ...tracker,
+        smoothedY: null,
+        pinchDown: false,
+        pinchArmed: false,
+      },
       deltaPx: 0,
       select: false,
     };
@@ -65,15 +76,19 @@ export function stepGesture(
   const pinchRatio = sample.pinchDistance / sample.span;
   const pinchThreshold = tracker.pinchDown ? PINCH_OFF_RATIO : PINCH_ON_RATIO;
   const pinching = pinchRatio < pinchThreshold;
+  const pinchArmed =
+    !pinching && pinchRatio >= PINCH_OFF_RATIO ? true : tracker.pinchArmed;
   const select =
     pinching &&
     !tracker.pinchDown &&
+    tracker.pinchArmed &&
     now - tracker.lastSelectAt >= SELECT_DEBOUNCE_MS;
 
   return {
     tracker: {
       smoothedY,
       pinchDown: pinching,
+      pinchArmed,
       lastSelectAt: select ? now : tracker.lastSelectAt,
     },
     deltaPx,

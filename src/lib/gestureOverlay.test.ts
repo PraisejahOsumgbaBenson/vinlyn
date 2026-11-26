@@ -37,4 +37,16 @@ describe("gesture overlay status", () => {
 
     expect(status).toContain("PINCHING");
   });
+
+  it("asks for an open hand when the first frame is pinched", () => {
+    const status = gestureOverlayStatus(
+      { ...openSample, pinchDistance: 0.08 },
+      hand,
+      30,
+      false,
+    );
+
+    expect(status).toContain("OPEN FINGERS TO ARM SELECT");
+    expect(status).not.toContain("PINCHING");
+  });
 });

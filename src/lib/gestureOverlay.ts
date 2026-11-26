@@ -143,15 +143,18 @@ export function gestureOverlayStatus(
   sample: GestureSample | null,
   landmarks: GestureLandmark[] | null,
   fps: number,
+  pinchArmed = true,
 ): string {
   if (!landmarks?.length || !sample) {
     return "HAND NOT FOUND · SHOW YOUR HAND TO THE CAMERA";
   }
 
   const pinchRatio = sample.pinchDistance / sample.span;
-  const action =
-    pinchRatio < PINCH_ON_RATIO
+  let action = "MOVE FINGER UP OR DOWN";
+  if (pinchRatio < PINCH_ON_RATIO) {
+    action = pinchArmed
       ? "PINCHING · RELEASE TO SELECT AGAIN"
-      : "MOVE FINGER UP OR DOWN";
+      : "OPEN FINGERS TO ARM SELECT";
+  }
   return `HAND FOUND · ${action} · ${fps > 0 ? `${fps} FPS` : "TRACKING"}`;
 }

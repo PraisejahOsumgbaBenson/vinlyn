@@ -187,6 +187,7 @@ export function HandGestureController({
           sample,
           landmarks,
           trackingFps,
+          step.tracker.pinchArmed,
         );
       }
     };

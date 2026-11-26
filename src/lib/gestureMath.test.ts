@@ -40,6 +40,26 @@ describe("gesture signal smoothing", () => {
     expect(released.tracker.pinchDown).toBe(false);
   });
 
+  it("does not select when the first tracked hand is already pinched", () => {
+    const tracker = createGestureTracker();
+
+    const result = stepGesture(tracker, sample(0.5, 0.05), 0);
+
+    expect(result.select).toBe(false);
+    expect(result.tracker.pinchArmed).toBe(false);
+    expect(result.tracker.pinchDown).toBe(true);
+  });
+
+  it("selects after an open hand arms the pinch", () => {
+    let tracker = createGestureTracker();
+    tracker = stepGesture(tracker, sample(0.5, 0.2), 0).tracker;
+    expect(tracker.pinchArmed).toBe(true);
+
+    const result = stepGesture(tracker, sample(0.5, 0.05), 600);
+
+    expect(result.select).toBe(true);
+  });
+
   it("resets tracking when the hand disappears", () => {
     let tracker = createGestureTracker();
     tracker = stepGesture(tracker, sample(0.5), 0).tracker;
@@ -48,6 +68,7 @@ describe("gesture signal smoothing", () => {
 
     expect(result.tracker.smoothedY).toBeNull();
     expect(result.tracker.pinchDown).toBe(false);
+    expect(result.tracker.pinchArmed).toBe(false);
     expect(result.deltaPx).toBe(0);
   });
 });
