@@ -1489,7 +1489,7 @@ export default function App() {
           aria-label="Choose gallery source"
         >
           <form
-            className="source-picker__card"
+            className="source-picker__card source-picker__panel"
             onSubmit={onSourcePickerSubmit}
           >
             <div className="source-picker__title">Load Artworks From</div>
