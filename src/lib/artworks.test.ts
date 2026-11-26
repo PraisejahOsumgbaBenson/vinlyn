@@ -4,6 +4,7 @@ import {
   isAllowedArtwork,
   isBlockedSearchQuery,
   isCacheFresh,
+  fetchMovementCovers,
   mergeCoverBatches,
   MOVEMENT_RESULT_LIMIT,
   movementArtworkSearchParams,
@@ -114,6 +115,52 @@ describe("movement artwork loading", () => {
 
   it("loads a deep movement collection instead of a small sample", () => {
     expect(MOVEMENT_RESULT_LIMIT).toBeGreaterThanOrEqual(200);
+  });
+
+  it("fills the full movement target from museum pages", async () => {
+    const originalFetch = globalThis.fetch;
+    const urls: string[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+
+      if (url.includes("en.wikipedia.org")) {
+        return new Response(JSON.stringify({ query: { pages: [] } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      const page = Number(url.match(/[?&]page=(\d+)/)?.[1] ?? 1);
+      const data = Array.from({ length: 100 }, (_, index) => ({
+        id: page * 100 + index,
+        title: `Historic Work ${page}-${index}`,
+        artist_title: "Historic Artist",
+        image_id: `image-${page}-${index}`,
+        date_end: 1800,
+      }));
+
+      return new Response(
+        JSON.stringify({
+          data,
+          pagination: { total: 400, total_pages: 4 },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const covers = await fetchMovementCovers("test-movement");
+
+      expect(covers).toHaveLength(MOVEMENT_RESULT_LIMIT);
+      expect(urls.some((url) => url.includes("page=2"))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

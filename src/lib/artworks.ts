@@ -570,17 +570,22 @@ async function fetchCombinedSearchCovers(
   return covers;
 }
 
-async function fetchMovementCovers(movementId: string): Promise<AlbumCover[]> {
+export async function fetchMovementCovers(
+  movementId: string,
+): Promise<AlbumCover[]> {
   const cacheKey = `movement:${movementId}:${MOVEMENT_RESULT_LIMIT}`;
   const cached = searchCache.get(cacheKey);
   if (cached && isCacheFresh(cached.savedAt, Date.now(), SEARCH_CACHE_TTL)) {
     return cached.covers;
   }
 
+  // Ask the museum for the full collection target. Wikipedia is extra context
+  // and is trimmed after merging, otherwise a short wiki batch leaves the
+  // gallery below 200 even when the museum has enough historical works.
   const [aic, wiki] = await Promise.all([
     fetchAllSearchCovers(
       movementId,
-      MOVEMENT_RESULT_LIMIT - WIKI_SEARCH_LIMIT,
+      MOVEMENT_RESULT_LIMIT,
       false,
       movementArtworkSearchParams(movementId),
     ),
