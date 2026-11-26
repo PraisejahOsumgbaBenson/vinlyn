@@ -1,7 +1,12 @@
 import type { GestureSample } from "./gestureMath";
 
 export type GestureWorkerRequest =
-  | { type: "init" }
+  | {
+      type: "init";
+      visionModuleUrl: string;
+      wasmRoot: string;
+      modelUrl: string;
+    }
   | { type: "frame"; frame: ImageBitmap; timestamp: number }
   | { type: "close" };
 

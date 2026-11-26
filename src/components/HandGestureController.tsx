@@ -1,4 +1,10 @@
 import { useEffect, useRef } from "react";
+import {
+  GESTURE_WORKER_URL,
+  HAND_MODEL,
+  LOCAL_VISION_MODULE,
+  VISION_WASM_ROOT,
+} from "../lib/gestureConfig";
 import { publishGestureScroll } from "../lib/gestureEvents";
 import {
   createGestureTracker,
@@ -152,10 +158,7 @@ export function HandGestureController({
 
     void (async () => {
       try {
-        worker = new Worker(
-          new URL("../workers/handGesture.worker.ts", import.meta.url),
-          { type: "module" },
-        );
+        worker = new Worker(GESTURE_WORKER_URL);
 
         worker.onmessage = (event: MessageEvent<GestureWorkerResponse>) => {
           if (disposed) return;
@@ -194,7 +197,12 @@ export function HandGestureController({
           cleanup();
         };
 
-        const init: GestureWorkerRequest = { type: "init" };
+        const init: GestureWorkerRequest = {
+          type: "init",
+          visionModuleUrl: LOCAL_VISION_MODULE,
+          wasmRoot: VISION_WASM_ROOT,
+          modelUrl: HAND_MODEL,
+        };
         worker.postMessage(init);
 
         stream = await navigator.mediaDevices.getUserMedia({

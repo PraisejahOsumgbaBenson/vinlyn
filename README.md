@@ -11,7 +11,7 @@ An interactive, gesture-driven digital art gallery that transforms how you brows
 ## Features
 
 - **3D Card Stack Gallery** — Drag through a perspective-warped stack of artwork cards with momentum-based scrolling and smooth easing animations
-- **Hand Gesture Controls** — Enable camera-based hand tracking (via MediaPipe) to scroll and select artworks without touching the screen
+- **Hand Gesture Controls** — Enable camera-based hand tracking (via MediaPipe) to move the 3D stack in drag view, scroll the page in grid view, and select the front artwork by pinching
 - **Spatial Audio Feedback** — Subtle Web Audio API sound effects for taps, drags, hovers, and gallery reveals
 - **Artwork Detail Pages** — Deep-dive into individual pieces with artist info, medium, dimensions, historical context, and auto-extracted color palettes
 - **Favorites & Collections** — Save artworks to favorites, create named collections, and manage them from the gallery view
@@ -105,19 +105,19 @@ src/
 ├── components/
 │   ├── AlbumRibbon.tsx            # 3D card stack with drag, hover, and gesture support
 │   ├── AlbumRibbon.css            # Card stack styling and 3D transforms
-│   └── HandGestureController.tsx  # MediaPipe hand landmark detection and gesture mapping
+│   └── HandGestureController.tsx  # Camera frames, gesture mapping, and scroll dispatch
 ├── lib/
 │   ├── index.ts                   # Public API exports
 │   ├── artworks.ts                # Art Institute of Chicago + Wikipedia API integration
 │   ├── artworks.test.ts           # Tests for historical and blocked-search rules
-│   ├── gestureEvents.ts           # Gesture scroll event bridge to the ribbon
+│   ├── gestureEvents.ts           # Gesture scroll event bridge to drag and grid views
 │   ├── gestureMath.ts             # Smoothing, deadband, delta clamp, and pinch hysteresis
 │   ├── gestureMath.test.ts        # Tests for gesture signal handling
 │   └── sfx.ts                     # Procedural UI sound synthesis via Web Audio API
-├── workers/
-│   └── handGesture.worker.ts      # MediaPipe inference off the UI thread
 └── main.tsx                       # Application entry point
 ```
+
+The classic gesture worker and MediaPipe runtime live in `public/`. They are served as plain files so the worker can load the runtime with `importScripts`.
 
 ## Architecture
 
@@ -127,7 +127,7 @@ The `AlbumRibbon` component renders a virtualized 3D card stack using CSS `trans
 
 ### Gesture Pipeline
 
-`HandGestureController` watches the camera for new frames, then hands each frame to a web worker. The worker loads the locally bundled MediaPipe runtime, starts `HandLandmarker` with GPU inference and a CPU fallback, and sends back one landmark sample per frame. `gestureMath.ts` smooths the index finger position, ignores small jitter, clamps large steps, and uses a hand-relative pinch ratio with release hysteresis and a 500ms selection debounce. Scroll deltas travel through a small event bridge straight to `AlbumRibbon`, so gesture movement does not re-render the app shell.
+`HandGestureController` watches the camera for new frames, then hands each frame to a classic web worker. The worker loads the locally bundled MediaPipe runtime with `importScripts`, starts `HandLandmarker` with GPU inference and a CPU fallback, and sends back one landmark sample per frame. `gestureMath.ts` smooths the index finger position, ignores small jitter, clamps large steps, and uses a hand-relative pinch ratio with release hysteresis and a 500ms selection debounce. Scroll deltas travel through a small event bridge. Drag view applies them directly to `AlbumRibbon` without re-rendering the app shell, and grid view scrolls the document.
 
 ### API Layer
 
