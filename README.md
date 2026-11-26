@@ -110,7 +110,12 @@ src/
 │   ├── index.ts                   # Public API exports
 │   ├── artworks.ts                # Art Institute of Chicago + Wikipedia API integration
 │   ├── artworks.test.ts           # Tests for historical and blocked-search rules
+│   ├── gestureEvents.ts           # Gesture scroll event bridge to the ribbon
+│   ├── gestureMath.ts             # Smoothing, deadband, delta clamp, and pinch hysteresis
+│   ├── gestureMath.test.ts        # Tests for gesture signal handling
 │   └── sfx.ts                     # Procedural UI sound synthesis via Web Audio API
+├── workers/
+│   └── handGesture.worker.ts      # MediaPipe inference off the UI thread
 └── main.tsx                       # Application entry point
 ```
 
@@ -122,7 +127,7 @@ The `AlbumRibbon` component renders a virtualized 3D card stack using CSS `trans
 
 ### Gesture Pipeline
 
-`HandGestureController` loads the MediaPipe vision bundle as a local blob URL, initializes a `HandLandmarker` model, and runs a `requestAnimationFrame` loop on the webcam feed. Index finger Y-delta maps to scroll velocity, while thumb-index pinch distance triggers selection with a 500ms debounce.
+`HandGestureController` watches the camera for new frames, then hands each frame to a web worker. The worker loads the locally bundled MediaPipe runtime, starts `HandLandmarker` with GPU inference and a CPU fallback, and sends back one landmark sample per frame. `gestureMath.ts` smooths the index finger position, ignores small jitter, clamps large steps, and uses a hand-relative pinch ratio with release hysteresis and a 500ms selection debounce. Scroll deltas travel through a small event bridge straight to `AlbumRibbon`, so gesture movement does not re-render the app shell.
 
 ### API Layer
 

@@ -1,201 +1,236 @@
 import { useEffect, useRef } from "react";
+import { publishGestureScroll } from "../lib/gestureEvents";
+import {
+  createGestureTracker,
+  stepGesture,
+  type GestureSample,
+} from "../lib/gestureMath";
+import type {
+  GestureWorkerRequest,
+  GestureWorkerResponse,
+} from "../lib/gestureMessages";
 
 type HandGestureControllerProps = {
   enabled: boolean;
-  onScroll: (deltaY: number) => void;
   onSelect: () => void;
   onStateChange?: (state: "idle" | "ready" | "error", message?: string) => void;
 };
 
-const LOCAL_VISION_MODULE = "/mediapipe/vision_bundle.mjs";
-const VISION_WASM_ROOT = "/mediapipe/wasm";
-const HAND_MODEL =
-  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
-
-type LandmarkPoint = { x: number; y: number; z?: number };
-
-type HandLandmarkerLike = {
-  detectForVideo: (
-    video: HTMLVideoElement,
-    timestampMs: number,
-  ) => { landmarks?: LandmarkPoint[][] };
-  close: () => void;
+type VideoFrameMetadata = { mediaTime: number };
+type VideoWithFrameCallback = HTMLVideoElement & {
+  requestVideoFrameCallback?: (
+    callback: (now: number, metadata: VideoFrameMetadata) => void,
+  ) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
 };
 
-type VisionModuleLike = {
-  FilesetResolver: {
-    forVisionTasks: (wasmRootPath: string) => Promise<unknown>;
-  };
-  HandLandmarker: {
-    createFromOptions: (
-      filesetResolver: unknown,
-      options: {
-        baseOptions: { modelAssetPath: string };
-        runningMode: "VIDEO";
-        numHands: number;
-      },
-    ) => Promise<HandLandmarkerLike>;
-  };
-};
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export function HandGestureController({
   enabled,
-  onScroll,
   onSelect,
   onStateChange,
 }: HandGestureControllerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (!enabled) {
       onStateChange?.("idle");
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
       return;
     }
 
-    let handLandmarker: HandLandmarkerLike | null = null;
-    let previousIndexY: number | null = null;
-    let pinchDown = false;
-    let lastSelectAt = 0;
-    let visionBlobUrl: string | null = null;
+    let disposed = false;
+    let worker: Worker | null = null;
+    let stream: MediaStream | null = null;
+    let videoEl: HTMLVideoElement | null = null;
+    let rafId: number | null = null;
+    let frameCallbackId: number | null = null;
+    let visionReady = false;
+    let frameInFlight = false;
+    let lastVideoTime = -1;
+    let lastTimestamp = 0;
+    let tracker = createGestureTracker();
 
-    const cleanup = () => {
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
+    const stopLoops = () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
       }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-      if (handLandmarker) {
-        handLandmarker.close();
-        handLandmarker = null;
-      }
-      if (visionBlobUrl) {
-        URL.revokeObjectURL(visionBlobUrl);
-        visionBlobUrl = null;
+      if (frameCallbackId !== null) {
+        const video = videoEl as VideoWithFrameCallback | null;
+        video?.cancelVideoFrameCallback?.(frameCallbackId);
+        frameCallbackId = null;
       }
     };
 
-    const run = async () => {
+    const cleanup = () => {
+      disposed = true;
+      stopLoops();
+      videoEl = null;
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+        stream = null;
+      }
+      if (worker) {
+        const close: GestureWorkerRequest = { type: "close" };
+        worker.postMessage(close);
+        worker.terminate();
+        worker = null;
+      }
+    };
+
+    const sendFrame = async (rawTimestamp: number) => {
+      if (disposed || !visionReady || frameInFlight || !worker) return;
+      const video = videoEl;
+      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+
+      const timestamp = Math.max(1, Math.floor(rawTimestamp), lastTimestamp + 1);
+      let frame: ImageBitmap;
       try {
-        const media = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: 640, height: 360 },
-          audio: false,
-        });
-        if (!mountedRef.current) {
-          media.getTracks().forEach((t) => t.stop());
-          return;
-        }
+        frame = await createImageBitmap(video);
+      } catch {
+        return;
+      }
+      if (disposed || !worker) {
+        frame.close();
+        return;
+      }
 
-        streamRef.current = media;
-        const video = videoRef.current;
-        if (!video) {
-          cleanup();
-          return;
-        }
-        video.srcObject = media;
-        await video.play();
+      frameInFlight = true;
+      lastTimestamp = timestamp;
+      const message: GestureWorkerRequest = {
+        type: "frame",
+        frame,
+        timestamp,
+      };
+      worker.postMessage(message, [frame]);
+    };
 
-        const moduleResponse = await fetch(LOCAL_VISION_MODULE);
-        if (!moduleResponse.ok) {
-          throw new Error(
-            `Could not load gesture runtime (${moduleResponse.status})`,
-          );
-        }
-        const moduleCode = await moduleResponse.text();
-        visionBlobUrl = URL.createObjectURL(
-          new Blob([moduleCode], { type: "text/javascript" }),
+    const onVideoFrame = (
+      _now: number,
+      metadata: VideoFrameMetadata,
+    ) => {
+      if (disposed) return;
+      if (metadata.mediaTime !== lastVideoTime) {
+        lastVideoTime = metadata.mediaTime;
+        void sendFrame(metadata.mediaTime * 1000);
+      }
+      scheduleFrame();
+    };
+
+    const tick = () => {
+      if (disposed) return;
+      if (videoEl && videoEl.currentTime !== lastVideoTime) {
+        lastVideoTime = videoEl.currentTime;
+        void sendFrame(performance.now());
+      }
+      rafId = window.requestAnimationFrame(tick);
+    };
+
+    const scheduleFrame = () => {
+      if (disposed) return;
+      const video = videoEl as VideoWithFrameCallback | null;
+      if (video?.requestVideoFrameCallback) {
+        frameCallbackId = video.requestVideoFrameCallback(onVideoFrame);
+        return;
+      }
+      if (rafId === null) {
+        rafId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    const applySample = (sample: GestureSample | null) => {
+      const now =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
+      const step = stepGesture(tracker, sample, now);
+      tracker = step.tracker;
+      if (step.deltaPx !== 0) publishGestureScroll(step.deltaPx);
+      if (step.select) onSelect();
+    };
+
+    void (async () => {
+      try {
+        worker = new Worker(
+          new URL("../workers/handGesture.worker.ts", import.meta.url),
+          { type: "module" },
         );
-        const vision = (await import(
-          /* @vite-ignore */ visionBlobUrl
-        )) as VisionModuleLike;
-        const filesetResolver =
-          await vision.FilesetResolver.forVisionTasks(VISION_WASM_ROOT);
-        handLandmarker = await vision.HandLandmarker.createFromOptions(
-          filesetResolver,
-          {
-            baseOptions: { modelAssetPath: HAND_MODEL },
-            runningMode: "VIDEO",
-            numHands: 1,
-          },
-        );
 
-        onStateChange?.("ready", "Camera gestures enabled");
+        worker.onmessage = (event: MessageEvent<GestureWorkerResponse>) => {
+          if (disposed) return;
+          const message = event.data;
 
-        const tick = () => {
-          if (!video || !handLandmarker || video.readyState < 2) {
-            rafRef.current = window.requestAnimationFrame(tick);
+          if (message.type === "ready") {
+            visionReady = true;
+            onStateChange?.(
+              "ready",
+              `Camera gestures enabled (${message.delegate})`,
+            );
+            scheduleFrame();
             return;
           }
 
-          const now = performance.now();
-          const result = handLandmarker.detectForVideo(video, now);
-          const hand = result?.landmarks?.[0];
-
-          if (hand && hand.length > 8) {
-            const indexTip = hand[8];
-            const thumbTip = hand[4];
-
-            if (previousIndexY !== null) {
-              const normalizedDelta = indexTip.y - previousIndexY;
-              const deltaPx = normalizedDelta * 1400;
-              if (Math.abs(deltaPx) > 1.8) {
-                onScroll(deltaPx);
-              }
-            }
-            previousIndexY = indexTip.y;
-
-            const pinchDistance = Math.hypot(
-              thumbTip.x - indexTip.x,
-              thumbTip.y - indexTip.y,
-            );
-            const isPinching = pinchDistance < 0.05;
-            if (isPinching && !pinchDown && now - lastSelectAt > 500) {
-              onSelect();
-              lastSelectAt = now;
-            }
-            pinchDown = isPinching;
-          } else {
-            previousIndexY = null;
-            pinchDown = false;
+          if (message.type === "sample") {
+            applySample(message.sample);
+            return;
           }
 
-          rafRef.current = window.requestAnimationFrame(tick);
+          if (message.type === "frameDone") {
+            frameInFlight = false;
+            return;
+          }
+
+          onStateChange?.("error", message.message);
+          cleanup();
         };
 
-        rafRef.current = window.requestAnimationFrame(tick);
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Could not enable camera gestures";
-        onStateChange?.("error", message);
-        cleanup();
-      }
-    };
+        worker.onerror = (event) => {
+          if (disposed) return;
+          onStateChange?.(
+            "error",
+            event.message || "Could not start hand tracking",
+          );
+          cleanup();
+        };
 
-    void run();
+        const init: GestureWorkerRequest = { type: "init" };
+        worker.postMessage(init);
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 360 },
+            frameRate: { ideal: 30, max: 30 },
+          },
+          audio: false,
+        });
+        if (disposed) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        videoEl = videoRef.current;
+        if (!videoEl) {
+          cleanup();
+          return;
+        }
+        videoEl.srcObject = stream;
+        await videoEl.play();
+      } catch (error) {
+        if (!disposed) {
+          onStateChange?.(
+            "error",
+            errorMessage(error, "Could not enable camera gestures"),
+          );
+          cleanup();
+        }
+      }
+    })();
+
     return cleanup;
-  }, [enabled, onScroll, onSelect, onStateChange]);
+  }, [enabled, onSelect, onStateChange]);
 
   if (!enabled) return null;
 

@@ -320,7 +320,6 @@ export default function App() {
   );
   const [gestureEnabled, setGestureEnabled] = useState(false);
   const [gestureStatus, setGestureStatus] = useState<string | null>(null);
-  const [gestureScroll, setGestureScroll] = useState({ seq: 0, delta: 0 });
   const [gestureSelectSeq, setGestureSelectSeq] = useState(0);
   const [imagePalette, setImagePalette] = useState<PaletteColor[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() =>
@@ -785,10 +784,6 @@ export default function App() {
     });
   };
 
-  const onGestureScroll = useCallback((deltaY: number) => {
-    setGestureScroll((prev) => ({ seq: prev.seq + 1, delta: deltaY }));
-  }, []);
-
   const onGestureSelect = useCallback(() => {
     setGestureSelectSeq((prev) => prev + 1);
   }, []);
@@ -808,6 +803,9 @@ export default function App() {
     },
     [],
   );
+
+  const gesturesActive =
+    gestureEnabled && !isArtworkPage && connected && layoutMode === "drag";
 
   const toggleFavorite = () => {
     const artworkId = activeAlbumDetail?.id || activeAlbum?.id;
@@ -2019,8 +2017,8 @@ export default function App() {
           <AlbumRibbon
             albums={visibleAlbums}
             onSelectAlbum={onSelectAlbum}
-            gestureScroll={gestureEnabled ? gestureScroll : undefined}
-            gestureSelectSeq={gestureEnabled ? gestureSelectSeq : undefined}
+            gestureEnabled={gesturesActive}
+            gestureSelectSeq={gesturesActive ? gestureSelectSeq : undefined}
           />
         ) : (
           <main className="art-grid-wrap" aria-label="Artwork grid view">
@@ -2075,10 +2073,7 @@ export default function App() {
       )}
 
       <HandGestureController
-        enabled={
-          gestureEnabled && !isArtworkPage && connected && layoutMode === "drag"
-        }
-        onScroll={onGestureScroll}
+        enabled={gesturesActive}
         onSelect={onGestureSelect}
         onStateChange={onGestureStateChange}
       />
